@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="conflict_error">#B3261E</color>
+    <color name="conflict_warn">#8A6100</color>
+    <color name="conflict_error_bg">#FFDAD6</color>
+    <color name="conflict_warn_bg">#FFF0C7</color>
+    <color name="ok_green">#1B6B3A</color>
+
+    <!-- 模式标签：颜色深浅对应优先级 固定横屏 &gt; 平行窗口 &gt; 通用全屏 -->
+    <color name="mode_full">#4A6572</color>
+    <color name="mode_embedding">#1B6B3A</color>
+    <color name="mode_fixed">#8A4B00</color>
+    <color name="mode_chip_text">#FFFFFF</color>
+
+    <!-- 标签里的英文属性名（灰色小字），深浅色模式下均可辨识 -->
+    <color name="field_en">#8C8C8C</color>
+    <!-- 标签未命中冲突时的描边色 -->
+    <color name="chip_stroke_normal">#61757575</color>
+</resources>

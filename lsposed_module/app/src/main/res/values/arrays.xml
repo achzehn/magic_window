@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      作用域建议（资料评估 6.1）：
+      android  = 系统框架（system_server），横屏规则、平行窗口判定、页面抓取全部在这里完成，必须勾选。
+      本模块自身 = 仅用于回显「已激活」状态与读取自己的配置，不做任何注入。
+      其他任何应用都不需要勾选：不 hook 目标应用进程，避免拖慢应用、也避免被检测。
+    -->
+    <string-array name="xposed_scope">
+        <item>android</item>
+        <item>com.github.lsposed.magicwindow</item>
+    </string-array>
+</resources>

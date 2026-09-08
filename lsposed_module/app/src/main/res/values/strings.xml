@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">完美横屏</string>
+    <string name="xposed_description">让更多应用支持平行窗口、横屏和大屏布局</string>
+
+    <!-- 主页 -->
+    <string name="status_active">模块已生效</string>
+    <string name="status_inactive">模块还没生效：请在 LSPosed 里打开本模块，并勾选「系统框架」</string>
+    <string name="status_configured">已经设置了 %1$d 个应用</string>
+    <string name="section_apps">应用设置</string>
+    <string name="action_app_list">选择应用</string>
+    <string name="action_app_list_desc">只有在这里设置过的应用才会被处理，没设置的完全不动</string>
+    <string name="section_advanced">进阶设置（不懂就别改）</string>
+    <string name="opt_verify_gates">开机检查系统开关</string>
+    <string name="opt_verify_gates_desc">开机时看一下系统的平行窗口、大屏适配总开关是否打开，并记到日志里</string>
+    <string name="opt_force_ae">系统关了平行窗口时强行打开</string>
+    <string name="opt_force_ae_desc">如果系统把平行窗口总开关关掉了，就骗系统说它是开着的</string>
+    <string name="opt_force_autoui">系统关了大屏适配时强行打开</string>
+    <string name="opt_force_autoui_desc">如果系统把界面自动适配（autoui）关掉了，就骗系统说它是开着的</string>
+    <string name="opt_flip_switch">替应用打开「设置里的开关」</string>
+    <string name="opt_flip_switch_desc">相当于自动帮你在系统设置里给这个应用打开平行窗口／横屏开关，效果最明显，建议保持开启</string>
+    <string name="opt_query_hook">让系统认为应用在名单里</string>
+    <string name="opt_query_hook_desc">系统查「这个应用支持不支持」时，直接回答支持</string>
+    <string name="opt_enable_query_hook">连「已开启」也一并谎报</string>
+    <string name="opt_enable_query_hook_desc">系统在多处会问「这个应用当前是否已开启」，打开后一律回答已开启，兜底更彻底</string>
+    <string name="opt_rule_table_inject">直接写进系统规则表</string>
+    <string name="opt_rule_table_inject_desc">把固定横屏规则塞进系统内部的规则表，并阻止系统把它清掉；依赖机型内部结构，出问题可关掉</string>
+    <string name="opt_override_disable">忽略系统的禁用名单</string>
+    <string name="opt_override_disable_desc">系统内置名单里有近 200 个应用被标记为禁用，打开后不再理会这个标记</string>
+    <string name="opt_autoui_inject">注入大屏布局规则</string>
+    <string name="opt_autoui_inject_desc">把你的界面适配规则写成一份「云端配置」交给系统读取</string>
+    <string name="opt_cloud_version">配置版本号</string>
+    <string name="opt_cloud_version_desc">必须大于系统自带的 360816，否则系统会继续用它自己的规则</string>
+    <string name="opt_hook_cloud_string">让系统自己写版本号</string>
+    <string name="opt_hook_cloud_string_desc">换一种更温和的方式抬高版本号，兼容性更好但属于实验功能</string>
+    <string name="opt_verbose">输出详细日志</string>
+    <string name="opt_verbose_desc">把每一次判断结果都写进 LSPosed 日志，排查问题时再开</string>
+    <string name="reboot_hint">改完需要重启手机才会生效</string>
+
+    <!-- 作用域建议 -->
+    <string name="scope_title">在 LSPosed 里要勾哪些</string>
+    <string name="scope_desc">只需要勾「系统框架」（Android Framework）。全部注入都发生在 system_server 里，不需要勾任何被适配的应用；「完美横屏」自身会自动勾上，只用来回显激活状态和接收抓取结果。</string>
+
+    <!-- 应用列表 -->
+    <string name="title_app_list">选择应用</string>
+    <string name="search_hint">搜索应用名或包名</string>
+    <string name="filter_all">全部</string>
+    <string name="filter_builtin">系统已内置</string>
+    <string name="filter_configured">已设置</string>
+    <string name="filter_user">已安装</string>
+    <string name="filter_system">系统应用</string>
+    <string name="batch_title">一次设置选中的 %1$d 个应用</string>
+    <string name="batch_apply">套用</string>
+    <string name="batch_clear">清除设置</string>
+    <string name="batch_select_all">选中当前列表全部</string>
+    <string name="batch_unselect">取消选中</string>
+    <string name="batch_done">已更新 %1$d 个应用</string>
+
+    <!-- 模式 -->
+    <string name="mode_off">不处理</string>
+    <string name="mode_full">通用全屏</string>
+    <string name="mode_embedding">平行窗口</string>
+    <string name="mode_fixed">固定横屏</string>
+    <string name="mode_priority_hint">三种模式只能选一个。系统里的优先顺序是：固定横屏 &gt; 平行窗口 &gt; 通用全屏</string>
+
+    <!-- 详情 -->
+    <string name="detail_enable">对这个应用生效</string>
+    <string name="detail_mode">选择模式</string>
+    <string name="detail_builtin_hint">这个应用系统本来就有内置规则（%1$s），下面已经按系统的值填好，你可以直接在此基础上改</string>
+    <string name="hint_inactive_section">当前没有选这个模式，下面的设置只会保存，不会生效</string>
+    <string name="section_embedding">平行窗口设置</string>
+    <string name="section_fixed">固定横屏设置</string>
+    <string name="section_autoui">界面自动适配</string>
+    <string name="section_autoui_desc">让应用在大屏上放大字体、拉宽布局，可以和上面的模式一起用</string>
+    <string name="section_override">手动指定系统开关</string>
+    <string name="section_override_desc">打开后就不再按上面选的模式自动决定开关，需要你自己保证三个开关不冲突</string>
+    <string name="note_embedding">页面要填「Activity 全类名」，可以用 * 代表全部；多个之间用英文逗号 , 隔开。留空表示不设置这一项。</string>
+    <string name="note_fixed">「全屏拉伸」会把画面铺满整个屏幕，可能变形；「横屏信箱」保持原比例居中显示，两边留黑边。</string>
+    <string name="note_override">三个开关分别对应系统设置里的平行窗口、固定横屏、全屏拉伸，一般只需要打开其中一个。</string>
+    <string name="group_pages">哪些页面参与</string>
+    <string name="group_layout">分栏与外观</string>
+    <string name="group_advanced">进阶参数</string>
+    <string name="conflict_title">设置有冲突</string>
+    <string name="conflict_fix">按优先级自动修正</string>
+    <string name="action_save">保存</string>
+    <string name="action_reset">恢复默认</string>
+    <string name="saved">已保存</string>
+    <string name="save_blocked">有严重冲突，请先修正再保存</string>
+
+    <!-- 系统内置规则 -->
+    <string name="builtin_prefix">系统已内置</string>
+    <string name="builtin_embedding">平行窗口</string>
+    <string name="builtin_fixed">固定横屏</string>
+    <string name="builtin_fixed_disabled">固定横屏（被系统禁用）</string>
+    <string name="builtin_autoui">界面适配</string>
+    <string name="builtin_read_failed">读不到系统内置规则文件（%1$s），「系统已内置」标记不可用</string>
+
+    <!-- 页面抓取 -->
+    <string name="action_capture">抓取页面类名</string>
+    <string name="title_capture">抓取页面</string>
+    <string name="capture_switch">开始记录打开过的页面</string>
+    <string name="capture_switch_desc">打开后回到桌面操作目标应用，把要设置的页面都点一遍，再回到这里勾选</string>
+    <string name="capture_need_reboot">刚打开记录开关时可能需要等几秒才开始生效</string>
+    <string name="capture_empty">还没抓到任何页面。请先打开上面的记录开关，再去操作目标应用。</string>
+    <string name="capture_count">共抓到 %1$d 个页面</string>
+    <string name="capture_clear">清空记录</string>
+    <string name="capture_fill">填入所选字段</string>
+    <string name="capture_none_selected">请先勾选要填入的页面</string>
+    <string name="capture_pick_field">填到哪个设置项？</string>
+    <string name="capture_filled">已填入 %1$d 个页面</string>
+
+    <!-- 桌面图标 -->
+    <string name="action_hide_icon">隐藏桌面图标</string>
+    <string name="hide_icon_confirm_title">隐藏桌面图标？</string>
+    <string name="hide_icon_confirm_msg">隐藏后桌面和应用列表里不再显示本模块。之后请从 LSPosed 管理器 → 模块 → 本模块 → 模块设置 进来。</string>
+    <string name="hide_icon_confirm_ok">隐藏</string>
+    <string name="hide_icon_confirm_cancel">取消</string>
+    <string name="hide_icon_done">已隐藏桌面图标</string>
+    <string name="show_icon_done">已恢复桌面图标</string>
+
+    <!-- 日志功能 -->
+    <string name="menu_log_group">日志</string>
+    <string name="action_preview_log">预览日志</string>
+    <string name="action_export_log">导出日志</string>
+    <string name="log_export_success">日志已导出</string>
+    <string name="log_export_failed">日志导出失败</string>
+
+    <!-- 配置导入导出 -->
+    <string name="menu_config_group">配置</string>
+    <string name="action_export_config">导出配置</string>
+    <string name="action_import_config">导入配置</string>
+    <string name="config_export_success">配置已导出</string>
+    <string name="config_export_failed">配置导出失败</string>
+    <string name="config_import_success">配置已导入</string>
+    <string name="config_import_failed">配置导入失败</string>
+</resources>

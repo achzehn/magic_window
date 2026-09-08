@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="page_padding">16dp</dimen>
+    <dimen name="card_gap">12dp</dimen>
+    <dimen name="row_gap">8dp</dimen>
+    <dimen name="icon_size">40dp</dimen>
+</resources>

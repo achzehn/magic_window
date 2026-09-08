@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+    
+    <!-- 日志导出需要读取日志 -->
+    <uses-permission android:name="android.permission.READ_LOGS" />
+    
+    <!-- 文件读写权限（Android 10+ 使用作用域存储，不需要额外权限） -->
+
+    <application
+        android:name=".MagicWindowApp"
+        android:allowBackup="false"
+        android:description="@string/xposed_description"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MagicWindow"
+        tools:ignore="MissingApplicationIcon">
+
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="@string/xposed_description" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="102" />
+        <meta-data
+            android:name="xposedsharedprefs"
+            android:value="true" />
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/xposed_scope" />
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            桌面图标单独放在别名上：隐藏图标就是停用这个别名。
+            主 Activity 只保留 LSPosed 的模块设置入口，图标隐藏后仍能从管理器进来。
+        -->
+        <activity-alias
+            android:name=".ui.LauncherAlias"
+            android:exported="true"
+            android:targetActivity=".ui.MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity
+            android:name=".ui.AppListActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.MainActivity" />
+
+        <activity
+            android:name=".ui.AppDetailActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.AppListActivity" />
+
+        <activity
+            android:name=".ui.CaptureActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.AppDetailActivity" />
+
+        <!-- system_server 侧抓到的页面记录，经此回传到模块自己的存储 -->
+        <provider
+            android:name=".data.CaptureProvider"
+            android:authorities="com.github.lsposed.magicwindow.capture"
+            android:exported="true"
+            android:permission="android.permission.WRITE_SECURE_SETTINGS"
+            tools:ignore="ExportedContentProvider" />
+
+    </application>
+
+</manifest>
