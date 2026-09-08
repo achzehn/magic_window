@@ -26,11 +26,9 @@ object EmbeddingQueryOverride {
             return
         }
 
-        // 一个应用都没配置时，这些方法全是系统热路径上的白挂，直接不挂，省下开机时间
-        if (RuleStore.activeRules().isEmpty()) {
-            XLog.i("没有生效的应用规则，跳过全部查询 hook")
-            return
-        }
+        // 注意：这里不能因为「当前一条规则都没有」就跳过挂钩。
+        // 注入只在开机时执行一次，跳过之后用户新增的规则将永远无法生效（除非重启手机）。
+        // 钩子内部第一步就是一次 HashMap 查询后放行，未配置的包开销可忽略。
 
         hook(pluginClassLoader, Constants.CLASS_EWS, Constants.M_IS_EMBEDDING_LISTED) { pkg ->
             if (RuleStore.hasEmbeddingRule(pkg)) true else null

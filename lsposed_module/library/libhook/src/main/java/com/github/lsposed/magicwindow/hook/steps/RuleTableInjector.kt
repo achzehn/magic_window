@@ -36,18 +36,11 @@ object RuleTableInjector {
             return
         }
 
-        pendingPkgs = RuleStore.activeRules()
-            .map { it.packageName }
-            .filter { RuleStore.hasFixedOrientationRule(it) }
-            .toSet()
+        refresh(pluginClassLoader)
 
-        // 没有固定横屏规则就别挂钩：getFixOrientationRules 是个高频 getter，
-        // 空挂一个钩子等于给整个窗口管理链路加常量开销。
-        if (pendingPkgs.isEmpty()) {
-            XLog.i("无固定横屏规则，跳过 B 档规则表注入")
-        } else {
-            hookFixOrientationRules(pluginClassLoader)
-        }
+        // 规则可能在开机之后才添加。注入只执行一次，所以必须在配置变更时重算并按需补挂，
+        // 否则用户新增的固定横屏规则要等到下次重启手机才生效。
+        RuleStore.onChange { refresh(pluginClassLoader) }
 
         // clearEmbeddedRule 的拦截由 UserSettingSwitcher 统一负责，那边是幂等的，
         // 这里只管调用，避免同一个方法被挂两遍钩子。
@@ -55,7 +48,26 @@ object RuleTableInjector {
             .onFailure { XLog.e("挂钩 ${Constants.M_CLEAR_EMBEDDED_RULE} 失败", it) }
     }
 
+    /**
+     * 重算待注入包名，有需要才挂钩。
+     *
+     * getFixOrientationRules 是个高频 getter，没有固定横屏规则时空挂一个钩子等于
+     * 给整个窗口管理链路加常量开销，所以延迟到真的有规则时才挂。
+     */
+    private fun refresh(cl: ClassLoader) {
+        pendingPkgs = RuleStore.activeRules()
+            .map { it.packageName }
+            .filter { RuleStore.hasFixedOrientationRule(it) }
+            .toSet()
+        if (pendingPkgs.isEmpty()) {
+            XLog.i("无固定横屏规则，暂不挂钩 B 档规则表")
+            return
+        }
+        hookFixOrientationRules(cl)
+    }
+
     private fun hookFixOrientationRules(cl: ClassLoader) {
+        if (fixOriHooks.isNotEmpty()) return // 已挂过，钩子内部会自行读最新的 pendingPkgs
         runCatching {
             val clazz = XposedHelpers.findClass(Constants.CLASS_FIXED_ORI_CONTROLLER, cl)
             val targets = clazz.declaredMethods.filter {

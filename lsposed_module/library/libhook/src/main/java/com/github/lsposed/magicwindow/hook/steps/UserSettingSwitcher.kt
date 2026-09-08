@@ -30,11 +30,8 @@ object UserSettingSwitcher {
             return
         }
 
-        // 一个应用都没配置，就别往系统热路径上挂钩子
-        if (RuleStore.activeRules().isEmpty()) {
-            XLog.i("没有生效的应用规则，跳过用户开关翻转")
-            return
-        }
+        // 注意：这里不能因为「当前一条规则都没有」就跳过挂钩。
+        // 注入只在开机时执行一次，跳过之后用户新增的规则将永远无法生效（除非重启手机）。
 
         val decide: (String) -> Boolean? = { pkg ->
             when {
@@ -64,7 +61,6 @@ object UserSettingSwitcher {
      * B 档规则表注入也依赖这层保护，所以做成幂等的：谁先调用谁挂，绝不重复挂第二遍。
      */
     internal fun preventClear(cl: ClassLoader) {
-        if (RuleStore.activeRules().isEmpty()) return
         if (!clearHooked.compareAndSet(false, true)) return
         runCatching {
             val clazz = XposedHelpers.findClass(Constants.CLASS_SYSTEM_EMBEDDED_RULE, cl)

@@ -25,7 +25,7 @@ class AppListActivity : AppCompatActivity() {
     private var all: List<AppItem> = emptyList()
     private var keyword: String = ""
 
-    private enum class Filter { ALL, CONFIGURED, USER, SYSTEM }
+    private enum class Filter { ALL, CONFIGURED, USER, SYSTEM, BUILTIN }
 
     private var filter = Filter.ALL
 
@@ -45,6 +45,8 @@ class AppListActivity : AppCompatActivity() {
             onToggle = { toggle(it) }
         )
         binding.recycler.layoutManager = LinearLayoutManager(this)
+        binding.recycler.setHasFixedSize(true)
+        binding.recycler.setItemViewCacheSize(20)
         binding.recycler.adapter = adapter
 
         binding.etSearch.addTextChangedListener { text ->
@@ -127,6 +129,7 @@ class AppListActivity : AppCompatActivity() {
                 Filter.CONFIGURED -> configured.containsKey(item.packageName)
                 Filter.USER -> !item.isSystem
                 Filter.SYSTEM -> item.isSystem
+                Filter.BUILTIN -> SystemRuleSource.kindsOf(item.packageName).isNotEmpty()
             }
             hitKeyword && hitFilter
         }

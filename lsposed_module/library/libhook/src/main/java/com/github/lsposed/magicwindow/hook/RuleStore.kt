@@ -53,6 +53,9 @@ object RuleStore {
 
     private val watcherStarted = AtomicBoolean(false)
 
+    /** 配置变更监听。用于那些「一次性动作」的步骤在开机后重新计算，避免改了配置必须重启手机 */
+    private val changeListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
+
     // ── 写侧 ────────────────────────────────────────────────
 
     /** 阻塞读一次配置。只应在注入入口调用，热路径禁止调用 */
@@ -64,6 +67,11 @@ object RuleStore {
             snapshot = Snapshot(global, rules)
             XLog.verbose = global.verboseLog
         }.onFailure { XLog.e("读取配置失败", it) }
+    }
+
+    /** 注册配置变更回调。回调运行在低优先级后台线程上 */
+    fun onChange(listener: () -> Unit) {
+        changeListeners += listener
     }
 
     /**
@@ -80,6 +88,9 @@ object RuleStore {
                     if (prefs.hasFileChanged()) {
                         loadNow()
                         XLog.i("配置已更新，生效规则 ${snapshot.activeRules.size} 条")
+                        changeListeners.forEach { l ->
+                            runCatching { l() }.onFailure { XLog.e("配置变更回调失败", it) }
+                        }
                     }
                 }
             }.onFailure { XLog.e("配置监听线程退出", it) }
