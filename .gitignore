@@ -5,3 +5,6 @@ jadx/bin/jadx-gui
 jadx/bin/jadx-gui.bat
 jadx/bin/jadx.bat
 jadx/lib/jadx-1.5.1-all.jar
+lsposed_module/magicwindow.keystore
+lsposed_module/app/build.gradle.kts
+
