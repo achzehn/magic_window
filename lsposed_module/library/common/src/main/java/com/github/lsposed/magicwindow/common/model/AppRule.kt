@@ -45,6 +45,25 @@ data class AppRule(
     var autoUiRule: String = "",
     var defaultSettings: String = "",
 
+    // ── 平行窗口：新版 JAR 新增属性 ───────────────────────
+    var disableSensor: Boolean = false,
+    var allowRepeatPage: Boolean = false,
+    var finishPrimaryWithSecondary: Boolean = false,
+    var isShowDialog: Boolean = false,
+    var useMiuiSplit: Boolean = false,
+    var miuiMagicWinEnabled: Boolean = false,
+    var disableCameraPreview: Boolean = false,
+    var embForceKillWhenSwitch: Boolean = false,
+    var splitMinSmallestWidth: String = "",
+    var layoutDirection: String = "",
+    var killApps: String = "",
+    var forcePortraitWhenSwitch: String = "",
+    var sizecompatRatio: String = "",
+    var sizecompatRule: String = "",
+    var transparentBar: String = "",
+    var embAdaptCutout: String = "",
+    var embRelaunchRule: String = "",
+
     // ── 固定横屏 fixed orientation ───────────────────────
     /** 实测恒为 "full,fo" */
     var foSupportModes: String = "full,fo",
@@ -63,6 +82,26 @@ data class AppRule(
     /** 覆盖系统内置 197 条 disable="true"（需 A 档查询 hook 配合） */
     var foOverrideDisable: Boolean = true,
 
+    // ── 固定横屏：新版 JAR 新增属性 ───────────────────────
+    /** 旋转方向调整，"0" 不调整 / "1" 调整（默认 0） */
+    var foAdjustmentOrientation: String = "",
+    /** 活动级旋转调整，格式 包名/类名:1，多个逗号隔开 */
+    var foAdjustmentOrientationActivity: String = "",
+    /** 宽高比 1.x~2.x；系统默认 "0" 表示不限制 */
+    var foRatio: String = "",
+    /** 所有页面都竖屏显示 */
+    var foAllPortrait: Boolean = false,
+    /** 重启规则，格式 DefaultScenario:true:页面名 */
+    var foRelaunchRule: String = "",
+    /** 顺带启用的界面适配（autoUI） */
+    var foAutoUI: Boolean = false,
+    /** 透明导航栏，系统默认 true；用 String 以便区分「不设置」 */
+    var foTransparentBar: String = "",
+    /** 挖孔屏适配，系统默认 -1 */
+    var foAdaptCutout: String = "",
+    var foIsShowDivider: Boolean = false,
+    var foSkipSelfAdaptive: Boolean = false,
+
     // ── autoui ───────────────────────────────────────────
     var autoUiEnable: Boolean = false,
     var autoUiOptimizeWebView: Boolean = false,
@@ -71,27 +110,22 @@ data class AppRule(
     var autoUiSkippedAppConfigChange: String = "",
     var autoUiVersionCode: String = "1",
 
-    // ── 用户开关覆写（4.10.5） ───────────────────────────
-    /** 打开后不再由 mode 推导用户开关，改用下面三个手动值 */
-    var overrideUserSwitch: Boolean = false,
+    // ── 手动系统开关（不再根据 mode 自动推导） ───────────────────────────
+    /** 平行窗口开关 */
     var swEmbedded: Boolean = false,
+    /** 固定横屏开关 */
     var swFixedOrientation: Boolean = false,
-    /** UI 上单个开关，写入时 fullScreenEnable 与 ratio_fullScreenEnable 成对落盘 */
+    /** 全屏拉伸开关 */
     var swFullScreen: Boolean = false
 ) {
 
-    /** 最终写入 embedded_setting_config.xml 的三个开关值（fullScreen 需成对写两个属性） */
+    /**
+     * 最终写入 embedded_setting_config.xml 的三个开关值。
+     * **仅返回手动设置的开关值，不再根据 mode 自动推导**。
+     * 用户需手动设置 swEmbedded、swFixedOrientation、swFullScreen。
+     */
     fun resolveSwitches(): Triple<Boolean, Boolean, Boolean> =
-        if (overrideUserSwitch) {
-            Triple(swEmbedded, swFixedOrientation, swFullScreen)
-        } else {
-            when (mode) {
-                WindowMode.OFF -> Triple(false, false, false)
-                WindowMode.FULL_SCREEN -> Triple(false, false, true)
-                WindowMode.EMBEDDING -> Triple(true, false, false)
-                WindowMode.FIXED_ORIENTATION -> Triple(false, true, false)
-            }
-        }
+        Triple(swEmbedded, swFixedOrientation, swFullScreen)
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("packageName", packageName)
@@ -122,6 +156,24 @@ data class AppRule(
         put("autoUiRule", autoUiRule)
         put("defaultSettings", defaultSettings)
 
+        put("disableSensor", disableSensor)
+        put("allowRepeatPage", allowRepeatPage)
+        put("finishPrimaryWithSecondary", finishPrimaryWithSecondary)
+        put("isShowDialog", isShowDialog)
+        put("useMiuiSplit", useMiuiSplit)
+        put("miuiMagicWinEnabled", miuiMagicWinEnabled)
+        put("disableCameraPreview", disableCameraPreview)
+        put("embForceKillWhenSwitch", embForceKillWhenSwitch)
+        put("splitMinSmallestWidth", splitMinSmallestWidth)
+        put("layoutDirection", layoutDirection)
+        put("killApps", killApps)
+        put("forcePortraitWhenSwitch", forcePortraitWhenSwitch)
+        put("sizecompatRatio", sizecompatRatio)
+        put("sizecompatRule", sizecompatRule)
+        put("transparentBar", transparentBar)
+        put("embAdaptCutout", embAdaptCutout)
+        put("embRelaunchRule", embRelaunchRule)
+
         put("foSupportModes", foSupportModes)
         put("foDefaultSettings", foDefaultSettings)
         put("foRelaunch", foRelaunch)
@@ -135,6 +187,16 @@ data class AppRule(
         put("foAllowEmbInPortrait", foAllowEmbInPortrait)
         put("foForceKillWhenSwitch", foForceKillWhenSwitch)
         put("foOverrideDisable", foOverrideDisable)
+        put("foAdjustmentOrientation", foAdjustmentOrientation)
+        put("foAdjustmentOrientationActivity", foAdjustmentOrientationActivity)
+        put("foRatio", foRatio)
+        put("foAllPortrait", foAllPortrait)
+        put("foRelaunchRule", foRelaunchRule)
+        put("foAutoUI", foAutoUI)
+        put("foTransparentBar", foTransparentBar)
+        put("foAdaptCutout", foAdaptCutout)
+        put("foIsShowDivider", foIsShowDivider)
+        put("foSkipSelfAdaptive", foSkipSelfAdaptive)
 
         put("autoUiEnable", autoUiEnable)
         put("autoUiOptimizeWebView", autoUiOptimizeWebView)
@@ -143,7 +205,6 @@ data class AppRule(
         put("autoUiSkippedAppConfigChange", autoUiSkippedAppConfigChange)
         put("autoUiVersionCode", autoUiVersionCode)
 
-        put("overrideUserSwitch", overrideUserSwitch)
         put("swEmbedded", swEmbedded)
         put("swFixedOrientation", swFixedOrientation)
         put("swFullScreen", swFullScreen)
@@ -159,7 +220,10 @@ data class AppRule(
                 supportFullSize = o.optBoolean("supportFullSize", d.supportFullSize)
                 isShowDivider = o.optBoolean("isShowDivider", d.isShowDivider)
                 skipSelfAdaptive = o.optBoolean("skipSelfAdaptive", d.skipSelfAdaptive)
-                splitRatio = o.optString("splitRatio", d.splitRatio)
+                // splitRatio 必须是数字字符串（如 "0.5"），过滤掉误存的 "false"
+                splitRatio = o.optString("splitRatio", d.splitRatio).takeIf {
+                    it != "false" && it != "true"
+                } ?: ""
                 activityRule = o.optString("activityRule", d.activityRule)
                 splitPairRule = o.optString("splitPairRule", d.splitPairRule)
                 placeholder = o.optString("placeholder", d.placeholder)
@@ -181,6 +245,28 @@ data class AppRule(
                 autoUiRule = o.optString("autoUiRule", d.autoUiRule)
                 defaultSettings = o.optString("defaultSettings", d.defaultSettings)
 
+                disableSensor = o.optBoolean("disableSensor", d.disableSensor)
+                allowRepeatPage = o.optBoolean("allowRepeatPage", d.allowRepeatPage)
+                finishPrimaryWithSecondary =
+                    o.optBoolean("finishPrimaryWithSecondary", d.finishPrimaryWithSecondary)
+                isShowDialog = o.optBoolean("isShowDialog", d.isShowDialog)
+                useMiuiSplit = o.optBoolean("useMiuiSplit", d.useMiuiSplit)
+                miuiMagicWinEnabled = o.optBoolean("miuiMagicWinEnabled", d.miuiMagicWinEnabled)
+                disableCameraPreview = o.optBoolean("disableCameraPreview", d.disableCameraPreview)
+                embForceKillWhenSwitch =
+                    o.optBoolean("embForceKillWhenSwitch", d.embForceKillWhenSwitch)
+                splitMinSmallestWidth =
+                    o.optString("splitMinSmallestWidth", d.splitMinSmallestWidth)
+                layoutDirection = o.optString("layoutDirection", d.layoutDirection)
+                killApps = o.optString("killApps", d.killApps)
+                forcePortraitWhenSwitch =
+                    o.optString("forcePortraitWhenSwitch", d.forcePortraitWhenSwitch)
+                sizecompatRatio = o.optString("sizecompatRatio", d.sizecompatRatio)
+                sizecompatRule = o.optString("sizecompatRule", d.sizecompatRule)
+                transparentBar = o.optString("transparentBar", d.transparentBar)
+                embAdaptCutout = o.optString("embAdaptCutout", d.embAdaptCutout)
+                embRelaunchRule = o.optString("embRelaunchRule", d.embRelaunchRule)
+
                 foSupportModes = o.optString("foSupportModes", d.foSupportModes)
                 foDefaultSettings = o.optString("foDefaultSettings", d.foDefaultSettings)
                 foRelaunch = o.optBoolean("foRelaunch", d.foRelaunch)
@@ -198,6 +284,18 @@ data class AppRule(
                 foForceKillWhenSwitch =
                     o.optBoolean("foForceKillWhenSwitch", d.foForceKillWhenSwitch)
                 foOverrideDisable = o.optBoolean("foOverrideDisable", d.foOverrideDisable)
+                foAdjustmentOrientation =
+                    o.optString("foAdjustmentOrientation", d.foAdjustmentOrientation)
+                foAdjustmentOrientationActivity =
+                    o.optString("foAdjustmentOrientationActivity", d.foAdjustmentOrientationActivity)
+                foRatio = o.optString("foRatio", d.foRatio)
+                foAllPortrait = o.optBoolean("foAllPortrait", d.foAllPortrait)
+                foRelaunchRule = o.optString("foRelaunchRule", d.foRelaunchRule)
+                foAutoUI = o.optBoolean("foAutoUI", d.foAutoUI)
+                foTransparentBar = o.optString("foTransparentBar", d.foTransparentBar)
+                foAdaptCutout = o.optString("foAdaptCutout", d.foAdaptCutout)
+                foIsShowDivider = o.optBoolean("foIsShowDivider", d.foIsShowDivider)
+                foSkipSelfAdaptive = o.optBoolean("foSkipSelfAdaptive", d.foSkipSelfAdaptive)
 
                 autoUiEnable = o.optBoolean("autoUiEnable", d.autoUiEnable)
                 autoUiOptimizeWebView = o.optBoolean("autoUiOptimizeWebView", d.autoUiOptimizeWebView)
@@ -208,7 +306,6 @@ data class AppRule(
                     o.optString("autoUiSkippedAppConfigChange", d.autoUiSkippedAppConfigChange)
                 autoUiVersionCode = o.optString("autoUiVersionCode", d.autoUiVersionCode)
 
-                overrideUserSwitch = o.optBoolean("overrideUserSwitch", d.overrideUserSwitch)
                 swEmbedded = o.optBoolean("swEmbedded", d.swEmbedded)
                 swFixedOrientation = o.optBoolean("swFixedOrientation", d.swFixedOrientation)
                 swFullScreen = o.optBoolean("swFullScreen", d.swFullScreen)

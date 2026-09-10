@@ -3,6 +3,7 @@ package com.github.lsposed.magicwindow.hook.steps
 import android.content.ComponentName
 import android.content.ContentValues
 import android.net.Uri
+import android.os.SystemClock
 import com.github.lsposed.magicwindow.common.Constants
 import com.github.lsposed.magicwindow.hook.RuleStore
 import com.github.lsposed.magicwindow.hook.XLog
@@ -18,6 +19,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * 落点选 `ActivityRecord` 的构造函数：每次启动一个页面都会新建一个 ActivityRecord，
  * 从 `mActivityComponent` 直接拿到 包名 + 类名，比 hook 各种 startActivity 分支稳定。
+ *
+ * 开关支持热切换：无论 [RuleStore.global] 里 captureEnabled 是真是假，开机时都把钩子挂上，
+ * 每次回调再读一次开关（纯内存读）。这样在 UI 里打开开关后立刻就能抓，不必重启手机。
  *
  * 性能约束（关系到开机快慢）：ActivityRecord 的构造通常在 WindowManagerGlobalLock 之内执行，
  * 而向 ContentProvider 写入是一次跨进程同步调用，还可能顺带冷启动模块进程。
@@ -42,15 +46,15 @@ object ActivityTracker {
 
     private val senderStarted = AtomicBoolean(false)
 
+    /** 字段读取失败只打一次日志，避免在 WM 锁热路径上刷屏 */
+    private val fieldErrorLogged = AtomicBoolean(false)
+
     private val uri: Uri = Uri.parse(
         "content://${Constants.CAPTURE_AUTHORITY}/${Constants.CAPTURE_PATH}"
     )
 
     fun apply(systemServerClassLoader: ClassLoader) {
-        if (!RuleStore.global().captureEnabled) {
-            XLog.i("页面抓取未开启")
-            return
-        }
+        // 始终挂钩：开关可以在 UI 里随时打开，不能因为开机时是关的就要求用户重启
         runCatching {
             val clazz = XposedHelpers.findClass(
                 Constants.CLASS_ACTIVITY_RECORD, systemServerClassLoader
@@ -60,8 +64,9 @@ object ActivityTracker {
                     record(param.thisObject)
                 }
             })
-            XLog.i("已挂钩 ActivityRecord 构造")
+            XLog.i("已挂钩 ActivityRecord 构造（页面抓取）")
         }.onFailure { XLog.e("挂钩 ActivityRecord 失败", it) }
+        startSender()
     }
 
     /** 运行在 WM 锁内，必须极快：只有字段读取、集合去重和一次入队 */
@@ -80,23 +85,38 @@ object ActivityTracker {
             if (!seen.add(key)) return
             if (seen.size > MAX_SEEN) seen.clear()
             if (!pending.offer(key)) return // 队列满则丢弃，不阻塞
-            startSender()
+        }.onFailure {
+            // 新系统字段名若发生变化，靠这条日志暴露；只打一次
+            if (fieldErrorLogged.compareAndSet(false, true)) {
+                XLog.e("读取 ActivityRecord 组件字段失败，页面抓取不可用", it)
+            }
         }
     }
 
     private fun startSender() {
         if (!senderStarted.compareAndSet(false, true)) return
         Thread {
-            runCatching {
-                Thread.sleep(BOOT_DELAY_MS)
-                while (true) {
-                    val batch = ArrayList<String>(QUEUE_CAPACITY)
+            // 仅在开机后短期内静默：UI 运行中才打开开关时不必再等
+            val sinceBoot = SystemClock.elapsedRealtime()
+            val wait = BOOT_DELAY_MS - sinceBoot
+            if (wait > 0) Thread.sleep(wait)
+            while (true) {
+                val batch = ArrayList<String>(QUEUE_CAPACITY)
+                // take 阻塞等待第一条；单批发送失败不能让整个回传线程退出
+                val gathered = runCatching {
                     batch.add(pending.take()) // 无记录时阻塞在这里，不耗 CPU
                     Thread.sleep(BATCH_INTERVAL_MS) // 攒一攒，减少跨进程次数
                     pending.drainTo(batch)
-                    sendBatch(batch)
                 }
-            }.onFailure { XLog.e("页面回传线程退出", it) }
+                if (gathered.isFailure) {
+                    XLog.e("页面抓取聚合失败", gathered.exceptionOrNull())
+                    continue
+                }
+                if (batch.isNotEmpty()) {
+                    runCatching { sendBatch(batch) }
+                        .onFailure { XLog.e("回传页面失败，本批 ${batch.size} 条", it) }
+                }
+            }
         }.apply {
             name = "MagicWindow-capture"
             isDaemon = true
@@ -105,25 +125,21 @@ object ActivityTracker {
     }
 
     private fun sendBatch(batch: List<String>) {
-        if (batch.isEmpty()) return
-        runCatching {
-            val activityThread = XposedHelpers.callStaticMethod(
-                XposedHelpers.findClass("android.app.ActivityThread", null),
-                "currentActivityThread"
-            ) ?: return
-            val context = XposedHelpers.callMethod(activityThread, "getSystemContext")
-                ?: return
-            val resolver = XposedHelpers.callMethod(context, "getContentResolver")
-            batch.forEach { key ->
-                val split = key.indexOf('|')
-                if (split <= 0) return@forEach
-                val values = ContentValues().apply {
-                    put(Constants.CAPTURE_COL_PACKAGE, key.substring(0, split))
-                    put(Constants.CAPTURE_COL_ACTIVITY, key.substring(split + 1))
-                }
-                XposedHelpers.callMethod(resolver, "insert", uri, values)
+        val activityThread = XposedHelpers.callStaticMethod(
+            XposedHelpers.findClass("android.app.ActivityThread", null),
+            "currentActivityThread"
+        ) ?: return
+        val context = XposedHelpers.callMethod(activityThread, "getSystemContext") ?: return
+        val resolver = XposedHelpers.callMethod(context, "getContentResolver")
+        batch.forEach { key ->
+            val split = key.indexOf('|')
+            if (split <= 0) return@forEach
+            val values = ContentValues().apply {
+                put(Constants.CAPTURE_COL_PACKAGE, key.substring(0, split))
+                put(Constants.CAPTURE_COL_ACTIVITY, key.substring(split + 1))
             }
-            XLog.i("已回传 ${batch.size} 条页面记录")
-        }.onFailure { XLog.e("回传页面失败，本批 ${batch.size} 条", it) }
+            XposedHelpers.callMethod(resolver, "insert", uri, values)
+        }
+        XLog.i("已回传 ${batch.size} 条页面记录")
     }
 }

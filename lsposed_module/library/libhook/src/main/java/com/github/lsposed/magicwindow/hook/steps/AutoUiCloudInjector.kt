@@ -31,7 +31,18 @@ object AutoUiCloudInjector {
     @Volatile
     private var lastFingerprint: String? = null
 
+    /** 缓存的解析类与 system rule 实例：配置变更后由 [injectNow] 重新落盘 + 热重载，无需再 hook */
+    @Volatile
+    private var parsingClassRef: Class<*>? = null
+
+    @Volatile
+    private var systemRuleRef: Any? = null
+
+    @Volatile
+    private var systemServerCl: ClassLoader? = null
+
     fun apply(pluginClassLoader: ClassLoader, systemServerClassLoader: ClassLoader) {
+        systemServerCl = systemServerClassLoader
         val config = RuleStore.global()
         if (!config.autoUiCloudInject) {
             XLog.i("autoui 云控注入已关闭")
@@ -44,6 +55,7 @@ object AutoUiCloudInjector {
             XLog.e("未找到 MiuiParsingAutoUI，跳过 autoui 注入", it)
             return
         }
+        parsingClassRef = parsingClass
 
         runCatching {
             XposedHelpers.findAndHookMethod(
@@ -51,6 +63,7 @@ object AutoUiCloudInjector {
                 XposedHelpers.findClass(Constants.CLASS_SYSTEM_AUTO_UI_RULE, pluginClassLoader),
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
+                        param.args.getOrNull(0)?.let { systemRuleRef = it }
                         if (inject(parsingClass, systemServerClassLoader)) {
                             param.setObjectExtra(EXTRA_INJECTED, true)
                         }
@@ -70,7 +83,23 @@ object AutoUiCloudInjector {
             XLog.i("已挂钩 MiuiParsingAutoUI.loadPackage")
         }.onFailure { XLog.e("挂钩 loadPackage 失败", it) }
 
+        // SettingsCloudData 位于 miui-framework（framework 侧），要用 system_server ClassLoader 查找
         if (config.hookCloudDataString) hookCloudDataString(systemServerClassLoader)
+    }
+
+    /** 配置保存后由 RuleStore.onChange 调用：用缓存的解析类与 system rule 重新落盘并热重载。 */
+    fun injectNow() {
+        if (!RuleStore.global().autoUiCloudInject) return
+        val parsingClass = parsingClassRef ?: return
+        val cl = systemServerCl ?: return
+        runCatching {
+            if (inject(parsingClass, cl)) {
+                systemRuleRef?.let { rule ->
+                    XposedHelpers.callMethod(rule, Constants.M_UPDATE_FROM_CLOUD_FILE)
+                    XLog.i("配置变更：已触发 autoui 热重载")
+                }
+            }
+        }.onFailure { XLog.e("autoui 热更新失败", it) }
     }
 
     /** @return 本次是否真的把云控文件落盘成功 */

@@ -15,6 +15,14 @@ android {
         versionName = "2.0.0"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("../magicwindow.keystore")
+            storePassword = "magicwindow123"
+            keyAlias = "magicwindow"
+            keyPassword = "magicwindow123"
+        }
+    }
 
     buildTypes {
         release {
@@ -24,7 +32,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
             isMinifyEnabled = false

@@ -79,10 +79,50 @@ object ConfigExporter {
                 reader.close()
             }
             
-            parseAndImport(context, json.toString())
+            // 尝试检测是否为 Magisk XML 格式
+            val content = json.toString()
+            if (content.contains("<embedded_rules") || content.contains("<fixed_orientation") ||
+                content.contains("<autoui") || content.contains("<config")) {
+                // Magisk XML 格式，交由 MagiskRuleImporter 处理
+                return importMagiskXml(context, sourceUri)
+            }
+            
+            parseAndImport(context, content)
         } catch (e: Exception) {
             e.printStackTrace()
             ImportResult(false, "导入失败：${e.message}")
+        }
+    }
+
+    /**
+     * 导入 Magisk XML 规则
+     */
+    private fun importMagiskXml(context: Context, sourceUri: Uri): ImportResult {
+        return try {
+            val contentResolver = context.contentResolver
+            val fd = contentResolver.openFileDescriptor(sourceUri, "r")
+                ?: return ImportResult(false, "无法打开文件")
+            
+            val result = MagiskRuleImporter.importFromFd(context, fd)
+            
+            val summary = buildString {
+                result.summary.forEach { (source, count) ->
+                    appendLine("${when (source) {
+                        MagiskRuleImporter.Source.EMBEDDING -> "平行窗口"
+                        MagiskRuleImporter.Source.FIXED -> "固定横屏"
+                        MagiskRuleImporter.Source.AUTO_UI -> "界面适配"
+                        MagiskRuleImporter.Source.SETTINGS -> "设置"
+                    }}: $count 条")
+                }
+            }
+            
+            val stats = "Magisk 规则包：${result.rules.size} 条应用规则"
+            val exportTime = "Magisk 模块"
+            
+            ImportResult(true, null, null, result.rules, stats, exportTime)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            ImportResult(false, "导入 Magisk 规则失败：${e.message}")
         }
     }
 
@@ -184,6 +224,10 @@ object ConfigExporter {
             appendLine("导出时间：${result.exportTime}")
             appendLine("配置内容：${result.stats}")
             appendLine()
+            if (result.exportTime == "Magisk 模块") {
+                appendLine("这是 Magisk 完美横屏模块的规则包，导入后将转换为本模块格式。")
+                appendLine()
+            }
             appendLine("导入后将覆盖当前所有配置，是否继续？")
         }
         

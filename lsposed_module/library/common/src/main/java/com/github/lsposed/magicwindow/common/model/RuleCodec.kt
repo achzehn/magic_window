@@ -31,4 +31,10 @@ object RuleCodec {
         if (text.isNullOrBlank()) return GlobalConfig()
         return runCatching { GlobalConfig.fromJson(JSONObject(text)) }.getOrElse { GlobalConfig() }
     }
+
+    /** 美化 JSON（缩进 2 空格） */
+    fun prettyJson(text: String): String {
+        val arr = JSONArray(text)
+        return arr.toString(2)
+    }
 }

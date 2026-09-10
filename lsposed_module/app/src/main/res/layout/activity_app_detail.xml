@@ -218,10 +218,46 @@
 
                     <TextView
                         style="@style/Text.MagicWindow.Desc"
+                        android:id="@+id/tvModeDesc"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/row_gap"
+                        android:layout_marginTop="@dimen/row_gap" />
+
+                    <TextView
+                        style="@style/Text.MagicWindow.Desc"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
                         android:text="@string/mode_priority_hint" />
+
+                    <!-- 简单 / 高级 切换 -->
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/detailModeGroup"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="end"
+                        android:layout_marginTop="@dimen/row_gap"
+                        app:selectionRequired="true"
+                        app:singleSelection="true">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnDetailSimple"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minWidth="88dp"
+                            android:text="@string/mode_simple"
+                            app:textAllCaps="false" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnDetailAdvanced"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minWidth="88dp"
+                            android:text="@string/mode_advanced"
+                            app:textAllCaps="false" />
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

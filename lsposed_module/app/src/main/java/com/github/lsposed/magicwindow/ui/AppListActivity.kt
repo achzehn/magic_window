@@ -5,7 +5,9 @@ import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.widget.EditText
 import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.github.lsposed.magicwindow.R
@@ -16,6 +18,7 @@ import com.github.lsposed.magicwindow.data.ConfigRepository
 import com.github.lsposed.magicwindow.data.SystemRuleSource
 import com.github.lsposed.magicwindow.databinding.ActivityAppListBinding
 import com.google.android.material.snackbar.Snackbar
+import org.json.JSONObject
 
 class AppListActivity : AppCompatActivity() {
 
@@ -59,6 +62,7 @@ class AppListActivity : AppCompatActivity() {
                 R.id.chipConfigured -> Filter.CONFIGURED
                 R.id.chipUser -> Filter.USER
                 R.id.chipSystem -> Filter.SYSTEM
+                R.id.chipBuiltin -> Filter.BUILTIN
                 else -> Filter.ALL
             }
             apply()
@@ -66,6 +70,7 @@ class AppListActivity : AppCompatActivity() {
 
         binding.btnBatchApply.setOnClickListener { applyBatch() }
         binding.btnBatchClear.setOnClickListener { clearBatch() }
+        binding.btnBatchEditField.setOnClickListener { showBatchEditFieldDialog() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(false) {
             override fun handleOnBackPressed() = exitSelection()
@@ -126,7 +131,9 @@ class AppListActivity : AppCompatActivity() {
                     item.packageName.lowercase().contains(keyword)
             val hitFilter = when (filter) {
                 Filter.ALL -> true
-                Filter.CONFIGURED -> configured.containsKey(item.packageName)
+                // 「已配置」= 用户手动配过的 + 系统内置扫出来的，两类都算已配置
+                Filter.CONFIGURED -> configured.containsKey(item.packageName) ||
+                        SystemRuleSource.kindsOf(item.packageName).isNotEmpty()
                 Filter.USER -> !item.isSystem
                 Filter.SYSTEM -> item.isSystem
                 Filter.BUILTIN -> SystemRuleSource.kindsOf(item.packageName).isNotEmpty()
@@ -187,8 +194,7 @@ class AppListActivity : AppCompatActivity() {
             ConfigRepository.ruleOrNew(pkg).also {
                 it.enabled = true
                 it.mode = mode
-                // 批量设置一律走主模式推导，避免手动覆盖导致互斥冲突
-                it.overrideUserSwitch = false
+                // 批量设置只改 mode，三个手动开关保持默认关闭
             }
         }
         ConfigRepository.saveRules(rules)
@@ -206,6 +212,86 @@ class AppListActivity : AppCompatActivity() {
         apply()
         Snackbar.make(binding.root, getString(R.string.batch_done, pkgs.size), Snackbar.LENGTH_SHORT)
             .show()
+    }
+
+    /** 批量编辑任意字段 */
+    private fun showBatchEditFieldDialog() {
+        val pkgs = adapter.selected.toList()
+        if (pkgs.isEmpty()) {
+            Snackbar.make(binding.root, R.string.capture_none_selected, Snackbar.LENGTH_SHORT).show()
+            return
+        }
+
+        val view = layoutInflater.inflate(R.layout.dialog_batch_edit_field, null)
+        val etField = view.findViewById<EditText>(R.id.etField)
+        val etValue = view.findViewById<EditText>(R.id.etValue)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.batch_edit_field_title)
+            .setMessage(R.string.batch_edit_field_desc)
+            .setView(view)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.batch_apply) { _, _ ->
+                val field = etField.text.toString().trim()
+                val value = etValue.text.toString().trim()
+                if (field.isEmpty() || value.isEmpty()) {
+                    Snackbar.make(binding.root, "字段名和值不能为空", Snackbar.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                applyBatchField(pkgs, field, value)
+            }
+            .show()
+    }
+
+    private fun applyBatchField(pkgs: List<String>, field: String, value: String) {
+        val rules = pkgs.map { pkg ->
+            val original = ConfigRepository.ruleOrNew(pkg)
+            original.enabled = true
+            // 动态设置字段：通过 JSON 方式
+            setFieldViaJson(original, field, value)
+        }
+        ConfigRepository.saveRules(rules)
+        exitSelection()
+        apply()
+        Snackbar.make(binding.root, getString(R.string.batch_done, pkgs.size), Snackbar.LENGTH_SHORT)
+            .show()
+    }
+
+    /** 通过 JSON 方式动态设置字段（傻瓜化：用户填字段名和值，我们自动映射） */
+    private fun setFieldViaJson(rule: com.github.lsposed.magicwindow.common.model.AppRule, field: String, value: String): com.github.lsposed.magicwindow.common.model.AppRule {
+        val json = rule.toJson()
+        try {
+            // 特殊处理：mode 字段需要转为 WindowMode
+            if (field == "mode") {
+                val mode = when (value.lowercase()) {
+                    "off", "0" -> WindowMode.OFF
+                    "full", "fullscreen", "1" -> WindowMode.FULL_SCREEN
+                    "embedding", "2" -> WindowMode.EMBEDDING
+                    "fixed", "fixed_orientation", "3" -> WindowMode.FIXED_ORIENTATION
+                    else -> WindowMode.EMBEDDING
+                }
+                json.put("mode", mode.key)
+            } else {
+                // 尝试自动推断类型
+                val typedValue = try {
+                    when {
+                        value.lowercase() == "true" -> true
+                        value.lowercase() == "false" -> false
+                        value.matches(Regex("^-?\\d+$")) -> value.toInt()
+                        value.matches(Regex("^-?\\d+\\.\\d+$")) -> value.toDouble()
+                        else -> value
+                    }
+                } catch (e: Exception) {
+                    value
+                }
+                json.put(field, typedValue)
+            }
+            // 从 JSON 重新创建规则
+            return com.github.lsposed.magicwindow.common.model.AppRule.fromJson(json)
+        } catch (e: Exception) {
+            // 忽略无效字段，返回原规则
+            return rule
+        }
     }
 }
 

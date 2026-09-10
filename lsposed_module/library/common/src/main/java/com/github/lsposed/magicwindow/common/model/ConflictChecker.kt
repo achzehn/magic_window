@@ -36,32 +36,31 @@ object ConflictChecker {
 
         if (!rule.enabled) return Result(emptyList())
 
-        if (rule.overrideUserSwitch) {
-            val on = listOf(
-                "swFixedOrientation" to rule.swFixedOrientation,
-                "swEmbedded" to rule.swEmbedded,
-                "swFullScreen" to rule.swFullScreen
-            ).filter { it.second }.map { it.first }
+        // 检测三个手动开关是否同时开启多个（互斥）
+        val on = listOf(
+            "swFixedOrientation" to rule.swFixedOrientation,
+            "swEmbedded" to rule.swEmbedded,
+            "swFullScreen" to rule.swFullScreen
+        ).filter { it.second }.map { it.first }
 
-            if (on.size > 1) {
-                val effective = WindowMode.fromSwitches(
-                    rule.swEmbedded, rule.swFixedOrientation, rule.swFullScreen
-                )
-                issues += Issue(
-                    Level.ERROR,
-                    on,
-                    "三套机制互斥：同时开启 ${on.size} 项，系统只会命中优先级最高的" +
-                            "「${label(effective)}」，其余配置不会生效"
-                )
-            }
+        if (on.size > 1) {
+            val effective = WindowMode.fromSwitches(
+                rule.swEmbedded, rule.swFixedOrientation, rule.swFullScreen
+            )
+            issues += Issue(
+                Level.ERROR,
+                on,
+                "三套机制互斥：同时开启 ${on.size} 项，系统只会命中优先级最高的" +
+                        "「${label(effective)}」，其余配置不会生效"
+            )
+        }
 
-            if (on.isEmpty()) {
-                issues += Issue(
-                    Level.WARN,
-                    listOf("swEmbedded", "swFixedOrientation", "swFullScreen"),
-                    "手动覆盖已开启但三个开关全为关，该应用等同于未启用"
-                )
-            }
+        if (on.isEmpty()) {
+            issues += Issue(
+                Level.WARN,
+                listOf("swEmbedded", "swFixedOrientation", "swFullScreen"),
+                "三个开关全为关，该应用等同于未启用"
+            )
         }
 
         // 主模式与已填写的细项之间的矛盾
@@ -142,7 +141,6 @@ object ConflictChecker {
 
     /** 按优先级自动修正：只保留优先级最高的那一项开关 */
     fun autoFix(rule: AppRule): AppRule {
-        if (!rule.overrideUserSwitch) return rule
         val effective = WindowMode.fromSwitches(
             rule.swEmbedded, rule.swFixedOrientation, rule.swFullScreen
         )

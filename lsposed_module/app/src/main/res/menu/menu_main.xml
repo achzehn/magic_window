@@ -30,6 +30,10 @@
         app:showAsAction="never">
         <menu>
             <item
+                android:id="@+id/action_rule_editor"
+                android:title="@string/rule_editor_title"
+                app:showAsAction="never" />
+            <item
                 android:id="@+id/action_export_config"
                 android:title="@string/action_export_config"
                 app:showAsAction="never" />

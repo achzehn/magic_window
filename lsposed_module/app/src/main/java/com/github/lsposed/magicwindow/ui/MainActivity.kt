@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.view.Menu
 import android.view.MenuItem
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,6 +19,7 @@ import com.github.lsposed.magicwindow.data.LogExporter
 import com.github.lsposed.magicwindow.databinding.ActivityMainBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -83,10 +85,18 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         setSupportActionBar(binding.toolbar)
 
+        // 检查 Root 权限
+        if (!checkRootPermission()) {
+            showRootRequiredDialog()
+            return
+        }
+
         binding.cardApps.setOnClickListener {
             startActivity(Intent(this, AppListActivity::class.java))
         }
-        buildAdvanced()
+        binding.cardExperimental.setOnClickListener {
+            startActivity(Intent(this, ExperimentalActivity::class.java))
+        }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -125,6 +135,10 @@ class MainActivity : AppCompatActivity() {
                     "text/plain"
                 )
             )
+            true
+        }
+        R.id.action_rule_editor -> {
+            startActivity(Intent(this, RuleEditorActivity::class.java))
             true
         }
 
@@ -178,77 +192,44 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.status_configured, ConfigRepository.configuredCount())
     }
 
-    private fun buildAdvanced() {
-        val c = ConfigRepository.global()
-        val box = binding.advancedContainer
-        box.removeAllViews()
-
-        UiKit.switchRow(
-            box, getString(R.string.opt_verify_gates), getString(R.string.opt_verify_gates_desc),
-            c.verifyGates
-        ) { c.verifyGates = it; ConfigRepository.saveGlobal(c) }
-
-        UiKit.switchRow(
-            box, getString(R.string.opt_force_ae), getString(R.string.opt_force_ae_desc),
-            c.forceActivityEmbedding
-        ) { c.forceActivityEmbedding = it; ConfigRepository.saveGlobal(c) }
-
-        UiKit.switchRow(
-            box, getString(R.string.opt_force_autoui), getString(R.string.opt_force_autoui_desc),
-            c.forceAutoUi
-        ) { c.forceAutoUi = it; ConfigRepository.saveGlobal(c) }
-
-        UiKit.switchRow(
-            box, getString(R.string.opt_flip_switch), getString(R.string.opt_flip_switch_desc),
-            c.flipUserSwitches
-        ) { c.flipUserSwitches = it; ConfigRepository.saveGlobal(c) }
-
-        UiKit.switchRow(
-            box, getString(R.string.opt_query_hook), getString(R.string.opt_query_hook_desc),
-            c.queryHookFallback
-        ) { c.queryHookFallback = it; ConfigRepository.saveGlobal(c) }
-
-        UiKit.switchRow(
-            box, getString(R.string.opt_enable_query_hook),
-            getString(R.string.opt_enable_query_hook_desc),
-            c.enableQueryHook
-        ) { c.enableQueryHook = it; ConfigRepository.saveGlobal(c) }
-
-        UiKit.switchRow(
-            box, getString(R.string.opt_override_disable),
-            getString(R.string.opt_override_disable_desc),
-            c.overrideSystemDisable
-        ) { c.overrideSystemDisable = it; ConfigRepository.saveGlobal(c) }
-
-        UiKit.switchRow(
-            box, getString(R.string.opt_rule_table_inject),
-            getString(R.string.opt_rule_table_inject_desc),
-            c.ruleTableInject
-        ) { c.ruleTableInject = it; ConfigRepository.saveGlobal(c) }
-
-        UiKit.switchRow(
-            box, getString(R.string.opt_autoui_inject), getString(R.string.opt_autoui_inject_desc),
-            c.autoUiCloudInject
-        ) { c.autoUiCloudInject = it; ConfigRepository.saveGlobal(c) }
-
-        UiKit.textRow(
-            box,
-            label = getString(R.string.opt_cloud_version),
-            value = c.cloudDataVersion.toString(),
-            hint = getString(R.string.opt_cloud_version_desc)
-        ) { v ->
-            v.trim().toLongOrNull()?.let { c.cloudDataVersion = it; ConfigRepository.saveGlobal(c) }
+    /** 检查 Root 权限 */
+    private fun checkRootPermission(): Boolean {
+        // 方法 1：检查 SuPath
+        val suPaths = listOf(
+            "/system/xbin/su",
+            "/system/bin/su",
+            "/sbin/su",
+            "/data/local/xbin/su",
+            "/data/local/bin/su",
+            "/system/sd/xbin/su",
+            "/system/bin/failsafe/su",
+            "/data/local/su"
+        )
+        for (path in suPaths) {
+            if (File(path).exists()) {
+                return true
+            }
         }
 
-        UiKit.switchRow(
-            box, getString(R.string.opt_hook_cloud_string),
-            getString(R.string.opt_hook_cloud_string_desc),
-            c.hookCloudDataString
-        ) { c.hookCloudDataString = it; ConfigRepository.saveGlobal(c) }
+        // 方法 2：尝试执行 whoami 命令（需要 su 可执行）
+        return try {
+            val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "whoami"))
+            val result = process.inputStream.bufferedReader().use { it.readText().trim() }
+            result == "root"
+        } catch (e: Exception) {
+            false
+        }
+    }
 
-        UiKit.switchRow(
-            box, getString(R.string.opt_verbose), getString(R.string.opt_verbose_desc),
-            c.verboseLog
-        ) { c.verboseLog = it; ConfigRepository.saveGlobal(c) }
+    /** 显示 Root 权限必需对话框 */
+    private fun showRootRequiredDialog() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.root_required_title)
+            .setMessage(R.string.root_required_message)
+            .setPositiveButton(R.string.root_required_ok) { _, _ ->
+                finish()
+            }
+            .setCancelable(false)
+            .show()
     }
 }

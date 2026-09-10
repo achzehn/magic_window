@@ -22,10 +22,24 @@ import com.google.android.material.textfield.TextInputLayout
 /** 动态表单构建工具：把 45+ 个配置项按分组渲染，避免维护巨型静态 XML。 */
 object UiKit {
 
+    /**
+     * 动态行在同一棵视图树里被复用了几十次同一个 id（til/et/chip/sw）。
+     * 旋转重建 Activity 时框架会按 id 自动恢复保存的状态，导致同 id 控件互相串值
+     * （表现为所有输入框都变成 "1"）。这里统一禁用自动状态保存，
+     * 界面状态一律以内存里的 AppRule 为准、由 buildForm() 重建。
+     */
+    private fun View.disableStateSaving() {
+        isSaveEnabled = false
+        if (this is ViewGroup) {
+            for (i in 0 until childCount) getChildAt(i).disableStateSaving()
+        }
+    }
+
     /** 在容器中追加一张分组卡片，返回卡片内部的 body 容器 */
     fun section(parent: ViewGroup, title: String, desc: String? = null): LinearLayout {
         val card = LayoutInflater.from(parent.context)
             .inflate(R.layout.card_section, parent, false)
+        card.disableStateSaving()
         card.findViewById<TextView>(R.id.tvSection).text = title
         card.findViewById<TextView>(R.id.tvSectionDesc).apply {
             if (desc.isNullOrEmpty()) {
@@ -49,6 +63,7 @@ object UiKit {
     ): View {
         val row = LayoutInflater.from(parent.context)
             .inflate(R.layout.row_switch, parent, false)
+        row.disableStateSaving()
         row.findViewById<TextView>(R.id.tvTitle).text = title
         row.findViewById<TextView>(R.id.tvDesc).apply {
             if (desc.isNullOrEmpty()) {
@@ -70,6 +85,7 @@ object UiKit {
     fun chipBox(parent: ViewGroup): ChipGroup {
         val group = LayoutInflater.from(parent.context)
             .inflate(R.layout.row_chips, parent, false) as ChipGroup
+        group.disableStateSaving()
         parent.addView(group)
         return group
     }
@@ -87,6 +103,7 @@ object UiKit {
     ): Chip {
         val chip = LayoutInflater.from(group.context)
             .inflate(R.layout.item_chip, group, false) as Chip
+        chip.disableStateSaving()
         chip.text = withEnglish(chip, title, en)
         chip.isChecked = checked
         chip.setOnCheckedChangeListener { _, v -> onChange(v) }
@@ -98,6 +115,7 @@ object UiKit {
     fun note(parent: ViewGroup, text: String): TextView {
         val tv = LayoutInflater.from(parent.context)
             .inflate(R.layout.row_note, parent, false) as TextView
+        tv.isSaveEnabled = false
         tv.text = text
         parent.addView(tv)
         return tv
@@ -114,6 +132,7 @@ object UiKit {
     ): TextInputLayout {
         val til = LayoutInflater.from(parent.context)
             .inflate(R.layout.row_text, parent, false) as TextInputLayout
+        til.disableStateSaving()
         til.hint = label
         til.helperText = helper(en, hint)
         val et = til.findViewById<TextInputEditText>(R.id.et)
@@ -142,6 +161,7 @@ object UiKit {
     ): TextInputLayout {
         val til = LayoutInflater.from(parent.context)
             .inflate(R.layout.row_dropdown, parent, false) as TextInputLayout
+        til.disableStateSaving()
         til.hint = label
         til.helperText = helper(en, hint)
         val et = til.findViewById<MaterialAutoCompleteTextView>(R.id.et)

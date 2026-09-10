@@ -9,7 +9,10 @@
     <string name="status_configured">已经设置了 %1$d 个应用</string>
     <string name="section_apps">应用设置</string>
     <string name="action_app_list">选择应用</string>
-    <string name="action_app_list_desc">只有在这里设置过的应用才会被处理，没设置的完全不动</string>
+    <string name="action_app_list_desc">只处理在这里设置过的应用，其它应用完全不受影响</string>
+    <string name="action_experimental">实验性</string>
+    <string name="action_experimental_desc">高级注入与降级开关，普通用户无需改动</string>
+    <string name="title_experimental">实验性</string>
     <string name="section_advanced">进阶设置（不懂就别改）</string>
     <string name="opt_verify_gates">开机检查系统开关</string>
     <string name="opt_verify_gates_desc">开机时看一下系统的平行窗口、大屏适配总开关是否打开，并记到日志里</string>
@@ -18,7 +21,7 @@
     <string name="opt_force_autoui">系统关了大屏适配时强行打开</string>
     <string name="opt_force_autoui_desc">如果系统把界面自动适配（autoui）关掉了，就骗系统说它是开着的</string>
     <string name="opt_flip_switch">替应用打开「设置里的开关」</string>
-    <string name="opt_flip_switch_desc">相当于自动帮你在系统设置里给这个应用打开平行窗口／横屏开关，效果最明显，建议保持开启</string>
+    <string name="opt_flip_switch_desc">相当于自动帮你在系统设置里给这个应用打开平行窗口／横屏开关。云控注入已会自动打开，一般无需开此项</string>
     <string name="opt_query_hook">让系统认为应用在名单里</string>
     <string name="opt_query_hook_desc">系统查「这个应用支持不支持」时，直接回答支持</string>
     <string name="opt_enable_query_hook">连「已开启」也一并谎报</string>
@@ -29,6 +32,14 @@
     <string name="opt_override_disable_desc">系统内置名单里有近 200 个应用被标记为禁用，打开后不再理会这个标记</string>
     <string name="opt_autoui_inject">注入大屏布局规则</string>
     <string name="opt_autoui_inject_desc">把你的界面适配规则写成一份「云端配置」交给系统读取</string>
+    <string name="section_cloud_inject">规则注入（推荐，核心生效方式）</string>
+    <string name="opt_embedded_inject">注入平行窗口规则</string>
+    <string name="opt_embedded_inject_desc">把平行窗口规则写成「云端配置」交给系统读取，改配置后自动生效，无需重启</string>
+    <string name="opt_fixed_inject">注入固定横屏规则</string>
+    <string name="opt_fixed_inject_desc">把固定横屏规则写成「云端配置」交给系统读取，改配置后自动生效，无需重启</string>
+    <string name="section_fallback">降级备用（默认关闭，云控注入不生效时再开）</string>
+    <string name="section_gate">系统开关（前置条件）</string>
+    <string name="section_misc">其它</string>
     <string name="opt_cloud_version">配置版本号</string>
     <string name="opt_cloud_version_desc">必须大于系统自带的 360816，否则系统会继续用它自己的规则</string>
     <string name="opt_hook_cloud_string">让系统自己写版本号</string>
@@ -52,40 +63,58 @@
     <string name="batch_title">一次设置选中的 %1$d 个应用</string>
     <string name="batch_apply">套用</string>
     <string name="batch_clear">清除设置</string>
+    <string name="batch_edit_field">批量编辑字段</string>
     <string name="batch_select_all">选中当前列表全部</string>
     <string name="batch_unselect">取消选中</string>
     <string name="batch_done">已更新 %1$d 个应用</string>
+    <string name="batch_edit_field_title">批量编辑字段</string>
+    <string name="batch_edit_field_desc">选择要修改的字段和值，将应用到所有选中的应用</string>
+    <string name="batch_edit_field_label">字段名</string>
+    <string name="batch_edit_field_value">字段值</string>
+    <string name="batch_edit_field_hint_field">例如：mode / splitRatio / embeddingActivity</string>
+    <string name="batch_edit_field_hint_value">例如：embedding / 0.5 / *.MainActivity</string>
 
     <!-- 模式 -->
     <string name="mode_off">不处理</string>
     <string name="mode_full">通用全屏</string>
     <string name="mode_embedding">平行窗口</string>
     <string name="mode_fixed">固定横屏</string>
+    <string name="mode_off_desc">按系统默认显示，不做任何处理</string>
+    <string name="mode_full_desc">拉伸画面铺满整个屏幕，可能轻微变形</string>
+    <string name="mode_embedding_desc">一边列表一边详情，左右分栏浏览更高效</string>
+    <string name="mode_fixed_desc">强制横屏并铺满，居中留黑边或全屏拉伸</string>
     <string name="mode_priority_hint">三种模式只能选一个。系统里的优先顺序是：固定横屏 &gt; 平行窗口 &gt; 通用全屏</string>
+    <string name="simple_common">常用设置</string>
+    <string name="mode_simple">简单</string>
+    <string name="mode_advanced">高级</string>
+    <string name="advanced_hint">下面的参数一般保持默认即可，懂规则语法再改</string>
 
     <!-- 详情 -->
     <string name="detail_enable">对这个应用生效</string>
     <string name="detail_mode">选择模式</string>
     <string name="detail_builtin_hint">这个应用系统本来就有内置规则（%1$s），下面已经按系统的值填好，你可以直接在此基础上改</string>
-    <string name="hint_inactive_section">当前没有选这个模式，下面的设置只会保存，不会生效</string>
+    <string name="note_mode_no_detail">当前模式没有专属参数；下方的界面自动适配和手动系统开关仍然可用。</string>
     <string name="section_embedding">平行窗口设置</string>
     <string name="section_fixed">固定横屏设置</string>
     <string name="section_autoui">界面自动适配</string>
     <string name="section_autoui_desc">让应用在大屏上放大字体、拉宽布局，可以和上面的模式一起用</string>
-    <string name="section_override">手动指定系统开关</string>
-    <string name="section_override_desc">打开后就不再按上面选的模式自动决定开关，需要你自己保证三个开关不冲突</string>
+    <string name="section_override">系统开关（手动设置）</string>
+    <string name="section_override_desc">不再根据模式自动推导，需要手动设置三个开关。一般只打开其中一个即可，同时打开多个可能导致冲突。</string>
     <string name="note_embedding">页面要填「Activity 全类名」，可以用 * 代表全部；多个之间用英文逗号 , 隔开。留空表示不设置这一项。</string>
     <string name="note_fixed">「全屏拉伸」会把画面铺满整个屏幕，可能变形；「横屏信箱」保持原比例居中显示，两边留黑边。</string>
-    <string name="note_override">三个开关分别对应系统设置里的平行窗口、固定横屏、全屏拉伸，一般只需要打开其中一个。</string>
+    <string name="note_override">三个开关分别对应系统设置里的平行窗口、固定横屏、全屏拉伸。一般只打开其中一个即可，同时打开多个可能导致冲突。</string>
     <string name="group_pages">哪些页面参与</string>
     <string name="group_layout">分栏与外观</string>
     <string name="group_advanced">进阶参数</string>
     <string name="conflict_title">设置有冲突</string>
     <string name="conflict_fix">按优先级自动修正</string>
     <string name="action_save">保存</string>
+    <string name="save">保存</string>
     <string name="action_reset">恢复默认</string>
     <string name="saved">已保存</string>
     <string name="save_blocked">有严重冲突，请先修正再保存</string>
+    <string name="reset_done">已恢复为系统内置规则</string>
+    <string name="builtin_loading">正在读取系统内置规则…</string>
 
     <!-- 系统内置规则 -->
     <string name="builtin_prefix">系统已内置</string>
@@ -93,7 +122,6 @@
     <string name="builtin_fixed">固定横屏</string>
     <string name="builtin_fixed_disabled">固定横屏（被系统禁用）</string>
     <string name="builtin_autoui">界面适配</string>
-    <string name="builtin_read_failed">读不到系统内置规则文件（%1$s），「系统已内置」标记不可用</string>
 
     <!-- 页面抓取 -->
     <string name="action_capture">抓取页面类名</string>
@@ -133,4 +161,30 @@
     <string name="config_export_failed">配置导出失败</string>
     <string name="config_import_success">配置已导入</string>
     <string name="config_import_failed">配置导入失败</string>
+    <string name="config_import_desc">支持导入本模块导出的 JSON 配置，或 Magisk 完美横屏模块的 XML 规则包</string>
+
+    <!-- 全规则文本编辑器 -->
+    <string name="rule_editor_title">全规则编辑器</string>
+    <string name="rule_editor_hint">这里显示所有规则的 JSON。可以直接粘贴/编辑，点「格式化」整理格式，点「校验」检查是否正确，最后点「保存」生效。</string>
+    <string name="rule_editor_format">格式化</string>
+    <string name="rule_editor_validate">校验</string>
+    <string name="rule_editor_loaded">已加载当前规则</string>
+    <string name="rule_editor_empty">内容为空</string>
+    <string name="rule_editor_formatted">已格式化</string>
+    <string name="rule_editor_valid">JSON 格式正确</string>
+    <string name="rule_editor_valid_no_conflict">格式正确且无冲突</string>
+    <string name="rule_editor_saved">已保存</string>
+    <string name="format_error">格式化失败</string>
+    <string name="json_error">JSON 错误</string>
+    <string name="validate_error">校验失败</string>
+    <string name="save_error">保存失败</string>
+    <string name="conflicts_found">发现冲突</string>
+    <string name="save_success">保存成功</string>
+    <string name="save_failed">保存失败</string>
+    <string name="error">错误</string>
+
+    <!-- Root 权限 -->
+    <string name="root_required_title">需要 Root 权限</string>
+    <string name="root_required_message">本模块必须依赖 Root 权限才能正常工作。\n\n请确保设备已 Root 并安装了 SuperSU、Magisk 或 KernelSU 等 Root 管理工具。</string>
+    <string name="root_required_ok">我知道了</string>
 </resources>

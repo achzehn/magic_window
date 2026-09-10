@@ -44,6 +44,15 @@ class AppDetailActivity : AppCompatActivity() {
     private lateinit var pkg: String
     private lateinit var rule: AppRule
 
+    /** true 表示该应用已有用户保存的规则，系统内置值只做徽标，不覆盖任何字段 */
+    private var userSaved = false
+
+    /** 用户进入页面后是否动过任何配置；动过之后异步读到的内置值就不再回填，避免覆盖输入 */
+    private var dirty = false
+
+    /** 简单模式只显示当前模式的常用项；高级模式显示完整参数表。记忆在全局配置里 */
+    private var simpleMode = true
+
     /** 字段 key → 控件，用于冲突高亮定位 */
     private val fieldViews = linkedMapOf<String, View>()
 
@@ -83,22 +92,15 @@ class AppDetailActivity : AppCompatActivity() {
             runCatching { packageManager.getApplicationIcon(pkg) }.getOrNull()
         )
 
-        // 系统内置规则提示
-        val kinds = SystemRuleSource.kindsOf(pkg)
-        if (kinds.isNotEmpty()) {
-            binding.cardBuiltin.visibility = View.VISIBLE
-            val names = kinds.joinToString(" · ") { kind ->
-                when (kind) {
-                    SystemRuleSource.Kind.EMBEDDING -> getString(R.string.builtin_embedding)
-                    SystemRuleSource.Kind.FIXED -> getString(R.string.builtin_fixed)
-                    SystemRuleSource.Kind.AUTO_UI -> getString(R.string.builtin_autoui)
-                }
-            }
-            binding.tvBuiltin.text = getString(R.string.detail_builtin_hint, names)
+        // 系统内置规则提示（若规则表还在后台加载，加载完成后 onSystemRulesReady() 再刷新一次）
+        showBuiltinCard()
+        if (!SystemRuleSource.loaded) {
+            SystemRuleSource.whenLoadedOnMain { onSystemRulesReady() }
         }
 
         binding.switchEnabled.isChecked = rule.enabled
         binding.switchEnabled.setOnCheckedChangeListener { _, v ->
+            dirty = true
             rule.enabled = v
             validate()
         }
@@ -106,29 +108,98 @@ class AppDetailActivity : AppCompatActivity() {
         binding.modeGroup.check(buttonOf(rule.mode))
         binding.modeGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (!isChecked) return@addOnButtonCheckedListener
+            dirty = true
             rule.mode = modeOf(checkedId)
+            updateModeDesc()
+            buildForm()
+            validate()
+        }
+        updateModeDesc()
+
+        // 简单 / 高级切换：记忆在全局配置，切换只重建表单，不动数据
+        simpleMode = ConfigRepository.global().detailSimpleMode
+        binding.detailModeGroup.check(
+            if (simpleMode) R.id.btnDetailSimple else R.id.btnDetailAdvanced
+        )
+        binding.detailModeGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            simpleMode = checkedId == R.id.btnDetailSimple
+            ConfigRepository.global().let { it.detailSimpleMode = simpleMode; ConfigRepository.saveGlobal(it) }
             buildForm()
             validate()
         }
 
         binding.btnFix.setOnClickListener {
             ConflictChecker.autoFix(rule)
+            dirty = true
             binding.modeGroup.check(buttonOf(rule.mode))
             buildForm()
             validate()
         }
 
         binding.btnSave.setOnClickListener { save() }
-        binding.btnReset.setOnClickListener {
-            rule = AppRule(pkg)
-            binding.switchEnabled.isChecked = rule.enabled
+        binding.btnReset.setOnClickListener { resetToBuiltin() }
+
+        buildForm()
+        validate()
+    }
+
+    /** 系统规则表后台加载完成：未动过的新规则用内置值重建表单，并刷新徽标与读取提示 */
+    private fun onSystemRulesReady() {
+        if (isFinishing) return
+        if (!userSaved && !dirty) {
+            SystemRuleSource.applyDefaults(rule)
             binding.modeGroup.check(buttonOf(rule.mode))
             buildForm()
             validate()
         }
+        showBuiltinCard()
+        SystemRuleSource.errorMessage?.let {
+            Snackbar.make(binding.root, it, Snackbar.LENGTH_LONG).show()
+        }
+    }
 
+    /**
+     * 恢复默认：有内置规则的应用恢复成系统内置值，没有内置规则的恢复成空默认。
+     * 内置规则表可能还在后台加载，先等它就绪再取值，避免误恢复成空。
+     */
+    private fun resetToBuiltin() {
+        if (!SystemRuleSource.loaded) {
+            Snackbar.make(binding.root, R.string.builtin_loading, Snackbar.LENGTH_SHORT).show()
+            SystemRuleSource.whenLoadedOnMain { if (!isFinishing) applyBuiltinDefaults() }
+        } else {
+            applyBuiltinDefaults()
+        }
+    }
+
+    private fun applyBuiltinDefaults() {
+        rule = AppRule(pkg).also { SystemRuleSource.applyDefaults(it) }
+        userSaved = false
+        dirty = false
+        binding.switchEnabled.isChecked = rule.enabled
+        binding.modeGroup.check(buttonOf(rule.mode))
         buildForm()
         validate()
+        Snackbar.make(binding.root, R.string.reset_done, Snackbar.LENGTH_SHORT).show()
+    }
+
+    private fun showBuiltinCard() {
+        val kinds = SystemRuleSource.kindsOf(pkg)
+        if (kinds.isEmpty()) {
+            binding.cardBuiltin.visibility = View.GONE
+            return
+        }
+        binding.cardBuiltin.visibility = View.VISIBLE
+        val names = kinds.joinToString(" · ") { kind ->
+            when (kind) {
+                SystemRuleSource.Kind.EMBEDDING -> getString(R.string.builtin_embedding)
+                SystemRuleSource.Kind.FIXED ->
+                    if (SystemRuleSource.isFixedDisabled(pkg)) getString(R.string.builtin_fixed_disabled)
+                    else getString(R.string.builtin_fixed)
+                SystemRuleSource.Kind.AUTO_UI -> getString(R.string.builtin_autoui)
+            }
+        }
+        binding.tvBuiltin.text = getString(R.string.detail_builtin_hint, names)
     }
 
     // ── 菜单与「抓取页面」回填 ───────────────────────────────
@@ -235,6 +306,18 @@ class AppDetailActivity : AppCompatActivity() {
         else -> WindowMode.EMBEDDING
     }
 
+    /** 模式按钮下的人话说明 */
+    private fun updateModeDesc() {
+        binding.tvModeDesc.text = getString(
+            when (rule.mode) {
+                WindowMode.OFF -> R.string.mode_off_desc
+                WindowMode.FULL_SCREEN -> R.string.mode_full_desc
+                WindowMode.EMBEDDING -> R.string.mode_embedding_desc
+                WindowMode.FIXED_ORIENTATION -> R.string.mode_fixed_desc
+            }
+        )
+    }
+
     // ── 表单构建 ─────────────────────────────────────────────
 
     private fun buildForm() {
@@ -242,20 +325,86 @@ class AppDetailActivity : AppCompatActivity() {
         box.removeAllViews()
         fieldViews.clear()
 
-        buildEmbeddingSection(box)
-        buildFixedSection(box)
+        if (simpleMode) {
+            buildSimpleForm(box)
+            return
+        }
+
+        // 高级模式：按优先级只显示当前模式的专属参数，低优先级分区直接隐藏
+        when (rule.mode) {
+            WindowMode.EMBEDDING -> buildEmbeddingSection(box)
+            WindowMode.FIXED_ORIENTATION -> buildFixedSection(box)
+            WindowMode.FULL_SCREEN, WindowMode.OFF ->
+                UiKit.note(box, getString(R.string.note_mode_no_detail))
+        }
+        // 界面适配不属于三套互斥机制，任何模式下都保留。
+        // 「手动系统开关」分区已取消：选好模式后由系统按内置优先级自动打开对应开关，
+        // 不再让用户手动 swEmbedded/swFixedOrientation/swFullScreen，避免与模式推导冲突。
         buildAutoUiSection(box)
-        buildOverrideSection(box)
     }
 
-    private fun inactiveHint(active: Boolean): String? =
-        if (active) null else getString(R.string.hint_inactive_section)
+    /** 简单模式：只给当前模式最常用的几项，配一句话说明，小白照做即可 */
+    private fun buildSimpleForm(box: LinearLayout) {
+        when (rule.mode) {
+            WindowMode.EMBEDDING -> {
+                val body = UiKit.section(box, getString(R.string.simple_common))
+                val chips = UiKit.chipBox(body)
+                chip(chips, "supportFullSize", "可放大到整屏", "supportFullSize", rule.supportFullSize) {
+                    rule.supportFullSize = it
+                }
+                chip(chips, "isShowDivider", "显示中间分割线", "isShowDivider", rule.isShowDivider) {
+                    rule.isShowDivider = it
+                }
+                chip(chips, "relaunch", "切换时重启应用", "relaunch", rule.relaunch) {
+                    rule.relaunch = it
+                }
+                chip(
+                    chips, "finishSecondaryWithPrimary", "左栏关闭时右栏一起关",
+                    "finishSecondaryWithPrimary", rule.finishSecondaryWithPrimary
+                ) { rule.finishSecondaryWithPrimary = it }
+                UiKit.note(body, getString(R.string.note_embedding))
+            }
+
+            WindowMode.FIXED_ORIENTATION -> {
+                val body = UiKit.section(box, getString(R.string.simple_common))
+                dropdown(
+                    body, "foDefaultSettings", "默认用哪一档", "defaultSettings", rule.foDefaultSettings,
+                    listOf(
+                        "fo" to "横屏信箱（画面居中留黑边）",
+                        "full" to "全屏拉伸（铺满屏幕）",
+                        "" to UNSET
+                    )
+                ) { rule.foDefaultSettings = it }
+                val chips = UiKit.chipBox(body)
+                chip(chips, "foRelaunch", "切换时重启应用", "relaunch", rule.foRelaunch) {
+                    rule.foRelaunch = it
+                }
+                chip(chips, "foOverrideDisable", "无视系统禁用名单", "disable", rule.foOverrideDisable) {
+                    rule.foOverrideDisable = it
+                }
+                chip(chips, "foIsShowDivider", "显示中间分割线", "isShowDivider", rule.foIsShowDivider) {
+                    rule.foIsShowDivider = it
+                }
+                UiKit.note(body, getString(R.string.note_fixed))
+            }
+
+            WindowMode.FULL_SCREEN, WindowMode.OFF ->
+                UiKit.note(box, getString(R.string.note_mode_no_detail))
+        }
+
+        // 界面自动适配：最常用的一个开关
+        val au = UiKit.section(box, getString(R.string.section_autoui))
+        val auChips = UiKit.chipBox(au)
+        chip(auChips, "autoUiEnable", "开启界面自动适配", null, rule.autoUiEnable) {
+            rule.autoUiEnable = it
+        }
+        UiKit.note(au, getString(R.string.section_autoui_desc))
+
+        UiKit.note(box, getString(R.string.advanced_hint))
+    }
 
     private fun buildEmbeddingSection(box: LinearLayout) {
-        val body = UiKit.section(
-            box, getString(R.string.section_embedding),
-            inactiveHint(rule.mode == WindowMode.EMBEDDING)
-        )
+        val body = UiKit.section(box, getString(R.string.section_embedding))
 
         val chips = UiKit.chipBox(body)
         chip(chips, "supportFullSize", "可放大到整屏", "supportFullSize", rule.supportFullSize) {
@@ -277,6 +426,30 @@ class AppDetailActivity : AppCompatActivity() {
             chips, "finishSecondaryWithPrimary", "左栏关闭时右栏一起关",
             "finishSecondaryWithPrimary", rule.finishSecondaryWithPrimary
         ) { rule.finishSecondaryWithPrimary = it }
+        chip(
+            chips, "finishPrimaryWithSecondary", "右栏关闭时左栏一起关",
+            "finishPrimaryWithSecondary", rule.finishPrimaryWithSecondary
+        ) { rule.finishPrimaryWithSecondary = it }
+        chip(chips, "disableSensor", "禁用重力感应旋屏", "disableSensor", rule.disableSensor) {
+            rule.disableSensor = it
+        }
+        chip(chips, "allowRepeatPage", "允许重复打开同一页面", "allowRepeatPage", rule.allowRepeatPage) {
+            rule.allowRepeatPage = it
+        }
+        chip(chips, "isShowDialog", "模式切换时弹提示框", "isShowDialog", rule.isShowDialog) {
+            rule.isShowDialog = it
+        }
+        chip(chips, "useMiuiSplit", "改用系统分屏实现", "useMiuiSplit", rule.useMiuiSplit) {
+            rule.useMiuiSplit = it
+        }
+        chip(
+            chips, "miuiMagicWinEnabled", "应用内魔法窗开关", "miuiMagicWinEnabled",
+            rule.miuiMagicWinEnabled
+        ) { rule.miuiMagicWinEnabled = it }
+        chip(
+            chips, "embForceKillWhenSwitch", "换档时结束进程", "forceKillWhenSwitch",
+            rule.embForceKillWhenSwitch
+        ) { rule.embForceKillWhenSwitch = it }
         UiKit.note(body, getString(R.string.note_embedding))
 
         UiKit.note(body, getString(R.string.group_pages))
@@ -353,13 +526,47 @@ class AppDetailActivity : AppCompatActivity() {
             body, "defaultSettings", "默认档位", "defaultSettings", rule.defaultSettings,
             "应用第一次打开时用哪一档"
         ) { rule.defaultSettings = it }
+
+        txt(
+            body, "splitMinSmallestWidth", "分栏最小最短边", "splitMinSmallestWidth",
+            rule.splitMinSmallestWidth, "低于该最短边（dp）不分栏"
+        ) { rule.splitMinSmallestWidth = it }
+        txt(
+            body, "layoutDirection", "分栏方向", "layoutDirection", rule.layoutDirection,
+            "留空跟随系统；一般填 0/1/2"
+        ) { rule.layoutDirection = it }
+        txt(
+            body, "killApps", "换档时结束的应用", "killApps", rule.killApps,
+            "包名列表，多个用英文逗号隔开"
+        ) { rule.killApps = it }
+        txt(
+            body, "forcePortraitWhenSwitch", "换档时强制竖屏的页面", "forcePortraitWhenSwitch",
+            rule.forcePortraitWhenSwitch, "多个用英文逗号隔开"
+        ) { rule.forcePortraitWhenSwitch = it }
+        txt(
+            body, "sizecompatRatio", "兼容模式比例", "sizecompatRatio", rule.sizecompatRatio,
+            "留空不设置"
+        ) { rule.sizecompatRatio = it }
+        txt(
+            body, "sizecompatRule", "兼容模式页面规则", "sizecompatRule", rule.sizecompatRule,
+            "格式 页面:数值，多个逗号隔开"
+        ) { rule.sizecompatRule = it }
+        txt(
+            body, "transparentBar", "透明导航栏", "transparentBar", rule.transparentBar,
+            "填 true / false，留空跟随系统默认"
+        ) { rule.transparentBar = it }
+        txt(
+            body, "embAdaptCutout", "挖孔屏适配", "adaptCutout", rule.embAdaptCutout,
+            "-1 跟随系统，0 始终，1 短边，2 从不"
+        ) { rule.embAdaptCutout = it }
+        txt(
+            body, "embRelaunchRule", "重启规则", "relaunchRule", rule.embRelaunchRule,
+            "格式 DefaultScenario:true:页面名"
+        ) { rule.embRelaunchRule = it }
     }
 
     private fun buildFixedSection(box: LinearLayout) {
-        val body = UiKit.section(
-            box, getString(R.string.section_fixed),
-            inactiveHint(rule.mode == WindowMode.FIXED_ORIENTATION)
-        )
+        val body = UiKit.section(box, getString(R.string.section_fixed))
 
         val chips = UiKit.chipBox(body)
         chip(chips, "foSupportFullSize", "可放大到整屏", "supportFullSize", rule.foSupportFullSize) {
@@ -386,6 +593,18 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.foForceKillWhenSwitch = it }
         chip(chips, "foOverrideDisable", "无视系统禁用名单", "disable", rule.foOverrideDisable) {
             rule.foOverrideDisable = it
+        }
+        chip(chips, "foIsShowDivider", "显示中间分割线", "isShowDivider", rule.foIsShowDivider) {
+            rule.foIsShowDivider = it
+        }
+        chip(chips, "foSkipSelfAdaptive", "跳过应用自适应", "skipSelfAdaptive", rule.foSkipSelfAdaptive) {
+            rule.foSkipSelfAdaptive = it
+        }
+        chip(chips, "foAllPortrait", "所有页面都竖屏显示", "allPortrait", rule.foAllPortrait) {
+            rule.foAllPortrait = it
+        }
+        chip(chips, "foAutoUI", "顺带启用界面适配", "autoUI", rule.foAutoUI) {
+            rule.foAutoUI = it
         }
         UiKit.note(body, getString(R.string.note_fixed))
 
@@ -424,6 +643,40 @@ class AppDetailActivity : AppCompatActivity() {
             "fullForcePortraitActivity", rule.foFullForcePortraitActivity,
             "只在全屏拉伸档生效"
         ) { rule.foFullForcePortraitActivity = it }
+
+        UiKit.note(body, getString(R.string.group_advanced))
+        dropdown(
+            body, "foAdjustmentOrientation", "旋转方向调整", "adjustmentOrientation",
+            rule.foAdjustmentOrientation,
+            listOf(
+                "" to UNSET,
+                "0" to "不调整（0，系统默认）",
+                "1" to "调整旋转方向（1）"
+            ),
+            "部分应用旋转方向相反时用"
+        ) { rule.foAdjustmentOrientation = it }
+        txt(
+            body, "foAdjustmentOrientationActivity", "单独调整旋转方向的页面",
+            "adjustmentOrientationActivity", rule.foAdjustmentOrientationActivity,
+            "格式 包名/类名:1，多个逗号隔开"
+        ) { rule.foAdjustmentOrientationActivity = it }
+        txt(
+            body, "foRatio", "宽高比", "ratio", rule.foRatio,
+            "1.x~2.x 的小数；0 或留空表示不限制"
+        ) { rule.foRatio = it }
+        txt(
+            body, "foRelaunchRule", "重启规则", "relaunchRule", rule.foRelaunchRule,
+            "格式 DefaultScenario:true:页面名"
+        ) { rule.foRelaunchRule = it }
+        dropdown(
+            body, "foTransparentBar", "透明导航栏", "transparentBar",
+            rule.foTransparentBar,
+            listOf("" to UNSET, "true" to "透明（true，系统默认）", "false" to "不透明（false）")
+        ) { rule.foTransparentBar = it }
+        txt(
+            body, "foAdaptCutout", "挖孔屏适配", "adaptCutout", rule.foAdaptCutout,
+            "-1 跟随系统，0 始终，1 短边，2 从不"
+        ) { rule.foAdaptCutout = it }
     }
 
     private fun buildAutoUiSection(box: LinearLayout) {
@@ -456,28 +709,6 @@ class AppDetailActivity : AppCompatActivity() {
             body, "autoUiVersionCode", "本条规则版本号", "versionCode", rule.autoUiVersionCode,
             "改了规则想让系统重新读取时才需要加 1"
         ) { rule.autoUiVersionCode = it }
-    }
-
-    private fun buildOverrideSection(box: LinearLayout) {
-        val body = UiKit.section(
-            box, getString(R.string.section_override), getString(R.string.section_override_desc)
-        )
-
-        val chips = UiKit.chipBox(body)
-        chip(chips, "overrideUserSwitch", "手动指定系统开关", null, rule.overrideUserSwitch) {
-            rule.overrideUserSwitch = it
-        }
-        chip(chips, "swEmbedded", "平行窗口开关", "embeddedEnable", rule.swEmbedded) {
-            rule.swEmbedded = it
-        }
-        chip(
-            chips, "swFixedOrientation", "固定横屏开关", "fixedOrientationEnable",
-            rule.swFixedOrientation
-        ) { rule.swFixedOrientation = it }
-        chip(chips, "swFullScreen", "全屏拉伸开关", "fullScreenEnable", rule.swFullScreen) {
-            rule.swFullScreen = it
-        }
-        UiKit.note(body, getString(R.string.note_override))
     }
 
     // ── 控件封装（登记 key 以支持冲突高亮） ─────────────────
@@ -522,6 +753,7 @@ class AppDetailActivity : AppCompatActivity() {
         onChange: (String) -> Unit
     ) {
         fieldViews[key] = UiKit.dropdownRow(parent, label, en, options, value, hint) {
+            dirty = true
             onChange(it)
             validate()
         }
@@ -593,17 +825,24 @@ class AppDetailActivity : AppCompatActivity() {
             binding.tvConflictTitle.setTextColor(fg)
             binding.tvConflict.setTextColor(fg)
             binding.tvConflict.text = result.issues.joinToString("\n") { "• ${it.message}" }
-            binding.btnFix.visibility =
-                if (rule.overrideUserSwitch && error) View.VISIBLE else View.GONE
+            binding.btnFix.visibility = if (error) View.VISIBLE else View.GONE
         }
     }
 
     private fun save() {
+        // 手动系统开关已不在界面暴露：保存时按所选模式自动推导，交给系统按
+        // 内置优先级（固定横屏 > 平行窗口 > 全屏）命中，避免开关与模式不一致。
+        rule.swEmbedded = rule.mode == WindowMode.EMBEDDING
+        rule.swFixedOrientation = rule.mode == WindowMode.FIXED_ORIENTATION
+        rule.swFullScreen = rule.mode == WindowMode.FULL_SCREEN
+
         if (ConflictChecker.check(rule).hasError) {
             Snackbar.make(binding.root, R.string.save_blocked, Snackbar.LENGTH_SHORT).show()
             return
         }
         ConfigRepository.saveRule(rule)
+        userSaved = true
+        dirty = false
         Snackbar.make(binding.root, R.string.saved, Snackbar.LENGTH_SHORT).show()
     }
 }

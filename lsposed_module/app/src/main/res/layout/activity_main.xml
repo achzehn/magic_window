@@ -95,12 +95,15 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 作用域勾选建议 -->
+            <!-- 实验性入口 -->
             <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardExperimental"
                 style="@style/Widget.MagicWindow.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/card_gap">
+                android:layout_marginTop="@dimen/card_gap"
+                android:clickable="true"
+                android:focusable="true">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -110,37 +113,16 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/scope_title"
+                        android:text="@string/action_experimental"
                         android:textAppearance="?attr/textAppearanceTitleMedium" />
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:text="@string/scope_desc"
+                        android:text="@string/action_experimental_desc"
                         style="@style/Text.MagicWindow.Desc" />
                 </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:layout_marginBottom="@dimen/row_gap"
-                android:text="@string/section_advanced"
-                style="@style/Text.MagicWindow.Section" />
-
-            <!-- 高级选项容器，由代码填充 -->
-            <com.google.android.material.card.MaterialCardView
-                style="@style/Widget.MagicWindow.Card"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <LinearLayout
-                    android:id="@+id/advancedContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical" />
             </com.google.android.material.card.MaterialCardView>
 
             <TextView

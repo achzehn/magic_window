@@ -76,4 +76,9 @@ object ConfigRepository {
     private fun persistRules() {
         prefs.edit().putString(Constants.KEY_RULES, RuleCodec.encodeRules(rules.values)).apply()
     }
+
+    /** 返回美化的 JSON 字符串，用于编辑器展示 */
+    fun allRulesJson(): String {
+        return RuleCodec.prettyJson(RuleCodec.encodeRules(rules.values))
+    }
 }

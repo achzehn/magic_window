@@ -48,6 +48,10 @@ object Constants {
     const val SETTING_CONFIG_FILE_NAME = "embedded_setting_config.xml"
 
     // ── 4.10.1 系统内置规则文件（不同机型目录 + 文件名都有分叉，按顺序探测） ──
+
+    /** 云控规则目录（system_server 写出，普通应用无权读，需 root） */
+    const val CLOUD_RULE_DIR = "/data/system/"
+
     val SYSTEM_RULE_DIRS = listOf("/product/etc/", "/system_ext/etc/", "/system/etc/")
 
     /**
@@ -57,6 +61,20 @@ object Constants {
     val FILES_EMBEDDED_RULES = listOf("embedded_rules_list.xml", "embedded_rules_list_projection.xml")
     val FILES_FIXED_ORI_RULES = listOf("fixed_orientation_list.xml", "fixed_orientation_list_projection.xml")
     val FILES_AUTO_UI_RULES = listOf("autoui_list.xml", "autoui_list_projection.xml")
+
+    /** /data/system 下的云控名单候选文件名，与上面的本地名单一一对应 */
+    val FILES_CLOUD_EMBEDDED_RULES = listOf(
+        "cloudFeature_embedded_rules_list.xml",
+        "cloudFeature_embedded_rules_list_projection.xml"
+    )
+    val FILES_CLOUD_FIXED_ORI_RULES = listOf(
+        "cloudFeature_fixed_orientation_list.xml",
+        "cloudFeature_fixed_orientation_list_projection.xml"
+    )
+    val FILES_CLOUD_AUTO_UI_RULES = listOf(
+        "cloudFeature_autoui_list.xml",
+        "cloudFeature_autoui_list_projection.xml"
+    )
 
     // ── 页面抓取工具 ──
     const val CAPTURE_AUTHORITY = "com.github.lsposed.magicwindow.capture"
@@ -95,7 +113,7 @@ object Constants {
     const val DEFAULT_CLOUD_DATA_VERSION = 99999999L
 
     // ── 4.9.5 云控数据入口 ──
-    const val CLASS_SETTINGS_CLOUD_DATA = "miui.util.MiuiSettings\$SettingsCloudData"
+    const val CLASS_SETTINGS_CLOUD_DATA = "android.provider.MiuiSettings\$SettingsCloudData"
     const val M_GET_CLOUD_DATA_STRING = "getCloudDataString"
 
     // ── 4.8.4 总开关兜底 hook 落点 ──

@@ -74,6 +74,16 @@
             android:exported="false"
             android:parentActivityName=".ui.AppDetailActivity" />
 
+        <activity
+            android:name=".ui.RuleEditorActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.MainActivity" />
+
+        <activity
+            android:name=".ui.ExperimentalActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.MainActivity" />
+
         <!-- system_server 侧抓到的页面记录，经此回传到模块自己的存储 -->
         <provider
             android:name=".data.CaptureProvider"
