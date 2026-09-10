@@ -108,9 +108,12 @@ object CloudXmlCodec {
 
     /**
      * 把一条模块规则转成 embedding 云控属性表。
+     * 只在 mode=EMBEDDING 时生成，避免与 fixed 规则冲突。
      * 空字符串字段不写入，交由系统默认值处理；布尔只在需要时写 "true"/"false"。
      */
-    fun embeddingAttrsOf(rule: AppRule): Map<String, String> = buildMap {
+    fun embeddingAttrsOf(rule: AppRule): Map<String, String> {
+        if (rule.mode != WindowMode.EMBEDDING) return emptyMap()
+        return buildMap {
         // 布尔属性只在 true 时写入（系统默认 false，显式写 "false" 可能导致解析异常）
         if (rule.supportFullSize) put("supportFullSize", "true")
         if (rule.isShowDivider) put("isShowDivider", "true")
@@ -118,8 +121,9 @@ object CloudXmlCodec {
         if (rule.supportCameraPreview) put("supportCameraPreview", "true")
         if (rule.relaunch) put("relaunch", "true")
         if (rule.clearTop) put("clearTop", "true")
-        if (rule.finishSecondaryWithPrimary) put("finishSecondaryWithPrimary", "true")
-        if (rule.finishPrimaryWithSecondary) put("finishPrimaryWithSecondary", "true")
+        // finishPrimaryWithSecondary / finishSecondaryWithPrimary 系统期望数字 "1" 而不是 "true"
+        if (rule.finishSecondaryWithPrimary) put("finishSecondaryWithPrimary", "1")
+        if (rule.finishPrimaryWithSecondary) put("finishPrimaryWithSecondary", "1")
         if (rule.disableSensor) put("disableSensor", "true")
         if (rule.allowRepeatPage) put("allowRepeatPage", "true")
         if (rule.isShowDialog) put("isShowDialog", "true")
@@ -132,8 +136,11 @@ object CloudXmlCodec {
         putIfNotEmpty("activityRule", rule.activityRule)
         putIfNotEmpty("splitPairRule", rule.splitPairRule)
         putIfNotEmpty("placeholder", rule.placeholder)
-        putIfNotEmpty("fullRule", rule.fullRule)
-        putIfNotEmpty("scaleMode", rule.scaleMode)
+        // 注意：不能写 fullRule——系统解析到 fullRule 会判定该应用「支持全屏、不支持平行窗口」
+        // （SettingRule.setSupportAEOrFullRule），平行窗口将永远无法选中
+        // scaleMode 必须是数字（int），过滤误存的 "true"/"false"
+        rule.scaleMode.takeIf { it != "true" && it != "false" && it.isNotEmpty() }
+            ?.let { put("scaleMode", it) }
         putIfNotEmpty("middleRule", rule.middleRule)
         putIfNotEmpty("transitionRules", rule.transitionRules)
         putIfNotEmpty("splitLineColor", rule.splitLineColor)
@@ -151,15 +158,36 @@ object CloudXmlCodec {
         putIfNotEmpty("sizecompatRatio", rule.sizecompatRatio)
         putIfNotEmpty("sizecompatRule", rule.sizecompatRule)
         putIfNotEmpty("transparentBar", rule.transparentBar)
-        putIfNotEmpty("adaptCutout", rule.embAdaptCutout)
+        // adaptCutout 必须是数字（int），过滤误存的 "true"/"false"
+        rule.embAdaptCutout.takeIf { it != "true" && it != "false" && it.isNotEmpty() }
+            ?.let { put("adaptCutout", it) }
         putIfNotEmpty("relaunchRule", rule.embRelaunchRule)
+        // version 必须是纯数字：系统 dealWithAppVersion 会 Long.parseLong，"1.0" 这类值会抛 NumberFormatException
+        if (rule.version.isNotEmpty() && rule.version.all { it.isDigit() }) {
+            put("version", rule.version)
+        }
+        }
+    }
+
+    /**
+     * 通用全屏的 embedding 占位属性：只写 fullRule。
+     * 系统（MiuiSystemEmbeddedRule）解析到 fullRule 后，会把应用标记为
+     * 「支持全屏、不支持平行窗口」，此时再通过官方入口 onAppUiModeChanged(pkg, 3)
+     * 才能真正选中全屏；缺省用通配值 "*"（全部页面整屏显示）。
+     */
+    fun fullScreenAttrsOf(rule: AppRule): Map<String, String> {
+        if (rule.mode != WindowMode.FULL_SCREEN) return emptyMap()
+        return mapOf("fullRule" to rule.fullRule.ifEmpty { "*" })
     }
 
     /**
      * 把一条模块规则转成 fixed 云控属性表。
+     * 只在 mode=FIXED_ORIENTATION 时生成，避免与 embedding 规则冲突。
      * 分档布尔（relaunch / supportCameraPreview）写成系统约定的 `fo:`/`full:` 前缀格式。
      */
-    fun fixedAttrsOf(rule: AppRule): Map<String, String> = buildMap {
+    fun fixedAttrsOf(rule: AppRule): Map<String, String> {
+        if (rule.mode != WindowMode.FIXED_ORIENTATION) return emptyMap()
+        return buildMap {
         putIfNotEmpty("supportModes", rule.foSupportModes)
         // defaultSettings 决定当前生效档（fo 或 full），缺省按 fo
         val tier = if (rule.foDefaultSettings.contains("full")) "full" else "fo"
@@ -177,8 +205,11 @@ object CloudXmlCodec {
         if (rule.foAutoUI) put("autoUI", "true")
         if (rule.foIsShowDivider) put("isShowDivider", "true")
         if (rule.foSkipSelfAdaptive) put("skipSelfAdaptive", "true")
+        // disable 直接控制是否生效（与 foOverrideDisable 互补）
+        if (rule.foDisable) put("disable", "true")
 
         putIfNotEmpty("compatChange", rule.foCompatChange)
+        putIfNotEmpty("disableCameraPreview", rule.foDisableCameraPreview)
         putIfNotEmpty("forcePortraitActivity", rule.foForcePortraitActivity)
         putIfNotEmpty("fullForcePortraitActivity", rule.foFullForcePortraitActivity)
         putIfNotEmpty("adjustmentOrientation", rule.foAdjustmentOrientation)
@@ -186,7 +217,10 @@ object CloudXmlCodec {
         putIfNotEmpty("ratio", rule.foRatio)
         putIfNotEmpty("relaunchRule", rule.foRelaunchRule)
         putIfNotEmpty("transparentBar", rule.foTransparentBar)
-        putIfNotEmpty("adaptCutout", rule.foAdaptCutout)
+        // adaptCutout 必须是数字（int），过滤误存的 "true"/"false"
+        rule.foAdaptCutout.takeIf { it != "true" && it != "false" && it.isNotEmpty() }
+            ?.let { put("adaptCutout", it) }
+        }
     }
 
     private fun MutableMap<String, String>.putIfNotEmpty(key: String, value: String) {

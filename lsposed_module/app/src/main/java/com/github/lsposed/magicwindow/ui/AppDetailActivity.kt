@@ -334,8 +334,9 @@ class AppDetailActivity : AppCompatActivity() {
         when (rule.mode) {
             WindowMode.EMBEDDING -> buildEmbeddingSection(box)
             WindowMode.FIXED_ORIENTATION -> buildFixedSection(box)
-            WindowMode.FULL_SCREEN, WindowMode.OFF ->
-                UiKit.note(box, getString(R.string.note_mode_no_detail))
+            WindowMode.FULL_SCREEN -> buildFullScreenSection(box)
+
+            WindowMode.OFF -> UiKit.note(box, getString(R.string.note_mode_no_detail))
         }
         // 界面适配不属于三套互斥机制，任何模式下都保留。
         // 「手动系统开关」分区已取消：选好模式后由系统按内置优先级自动打开对应开关，
@@ -388,8 +389,9 @@ class AppDetailActivity : AppCompatActivity() {
                 UiKit.note(body, getString(R.string.note_fixed))
             }
 
-            WindowMode.FULL_SCREEN, WindowMode.OFF ->
-                UiKit.note(box, getString(R.string.note_mode_no_detail))
+            WindowMode.FULL_SCREEN -> buildFullScreenSection(box)
+
+            WindowMode.OFF -> UiKit.note(box, getString(R.string.note_mode_no_detail))
         }
 
         // 界面自动适配：最常用的一个开关
@@ -484,15 +486,6 @@ class AppDetailActivity : AppCompatActivity() {
             "低于该宽度不分栏，单位 dp"
         ) { rule.splitMinWidth = it }
         dropdown(
-            body, "fullRule", "整屏显示方式", "fullRule", rule.fullRule,
-            listOf(
-                "" to UNSET,
-                "*" to "所有页面都可整屏（*）",
-                "nra" to "整屏时不重建页面（nra）",
-                "nra:cr:rcr" to "不重建 + 裁剪圆角（nra:cr:rcr）"
-            )
-        ) { rule.fullRule = it }
-        dropdown(
             body, "scaleMode", "画面缩放方式", "scaleMode", rule.scaleMode,
             listOf("" to UNSET, "1" to "等比缩放（1）")
         ) { rule.scaleMode = it }
@@ -563,6 +556,24 @@ class AppDetailActivity : AppCompatActivity() {
             body, "embRelaunchRule", "重启规则", "relaunchRule", rule.embRelaunchRule,
             "格式 DefaultScenario:true:页面名"
         ) { rule.embRelaunchRule = it }
+        txt(
+            body, "version", "规则生效的应用版本上限", "version", rule.version,
+            "应用版本号低于此值规则才生效，纯数字，如 500；留空不限制"
+        ) { rule.version = it }
+    }
+
+    /** 通用全屏：唯一专属参数是 fullRule（决定哪些页面整屏显示，缺省按 "*" 全部整屏） */
+    private fun buildFullScreenSection(box: LinearLayout) {
+        val body = UiKit.section(box, getString(R.string.section_fullscreen))
+        dropdown(
+            body, "fullRule", "整屏显示方式", "fullRule", rule.fullRule,
+            listOf(
+                "" to "默认：所有页面都整屏（*）",
+                "nra" to "整屏时不重建页面（nra）",
+                "nra:cr:rcr" to "不重建 + 裁剪圆角（nra:cr:rcr）"
+            )
+        ) { rule.fullRule = it }
+        UiKit.note(body, getString(R.string.note_fullscreen))
     }
 
     private fun buildFixedSection(box: LinearLayout) {
@@ -606,6 +617,9 @@ class AppDetailActivity : AppCompatActivity() {
         chip(chips, "foAutoUI", "顺带启用界面适配", "autoUI", rule.foAutoUI) {
             rule.foAutoUI = it
         }
+        chip(chips, "foDisable", "停用该应用的固定横屏", "disable", rule.foDisable) {
+            rule.foDisable = it
+        }
         UiKit.note(body, getString(R.string.note_fixed))
 
         dropdown(
@@ -621,6 +635,26 @@ class AppDetailActivity : AppCompatActivity() {
                 "" to UNSET
             )
         ) { rule.foDefaultSettings = it }
+
+        UiKit.note(body, "显示比例（对应系统设置里的画面比例，三选一，都不勾则按默认档）")
+        val ratioChips = UiKit.chipBox(body)
+        // 三选一：勾上一个要清掉另外两个（view 与 model 同步）
+        fun pickRatio(others: List<String>, checked: Boolean, set: (Boolean) -> Unit) {
+            set(checked)
+            if (checked) others.forEach { k ->
+                (fieldViews[k] as? Chip)?.isChecked = false  // 监听会顺带把 model 置 false
+            }
+        }
+        chip(ratioChips, "ratio43Enable", "4:3 比例", "ratio_4_3", rule.ratio43Enable) {
+            pickRatio(listOf("ratio169Enable", "ratioFullScreenEnable"), it) { v -> rule.ratio43Enable = v }
+        }
+        chip(ratioChips, "ratio169Enable", "16:9 比例", "ratio_16_9", rule.ratio169Enable) {
+            pickRatio(listOf("ratio43Enable", "ratioFullScreenEnable"), it) { v -> rule.ratio169Enable = v }
+        }
+        chip(ratioChips, "ratioFullScreenEnable", "全屏拉伸", "full", rule.ratioFullScreenEnable) {
+            pickRatio(listOf("ratio43Enable", "ratio169Enable"), it) { v -> rule.ratioFullScreenEnable = v }
+        }
+
         dropdown(
             body, "foCompatChange", "系统兼容性开关", "compatChange", rule.foCompatChange,
             listOf(
@@ -645,6 +679,12 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.foFullForcePortraitActivity = it }
 
         UiKit.note(body, getString(R.string.group_advanced))
+        dropdown(
+            body, "foDisableCameraPreview", "禁用相机预览", "disableCameraPreview",
+            rule.foDisableCameraPreview,
+            listOf("" to UNSET, "true" to "禁用（true）", "false" to "不禁用（false）"),
+            "应用打开相机时画面异常可以试"
+        ) { rule.foDisableCameraPreview = it }
         dropdown(
             body, "foAdjustmentOrientation", "旋转方向调整", "adjustmentOrientation",
             rule.foAdjustmentOrientation,

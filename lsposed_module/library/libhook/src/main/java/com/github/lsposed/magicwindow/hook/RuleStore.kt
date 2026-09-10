@@ -75,8 +75,9 @@ object RuleStore {
     }
 
     /**
-     * 启动配置变更监听。开机静默期内不做任何事，之后每 [POLL_INTERVAL_MS] 只比对一次文件时间戳，
-     * 真的变了才重新解析。线程为守护线程且最低优先级，不会影响开机。
+     * 启动配置变更监听。开机静默期内不做任何事，之后每 [POLL_INTERVAL_MS] 问一次
+     * XSharedPreferences 是否变更（LSPosed 服务端判重，App 保存即同步），真的变了才重新解析。
+     * 线程为守护线程且最低优先级，不会影响开机。
      */
     fun startWatching() {
         if (!watcherStarted.compareAndSet(false, true)) return

@@ -93,7 +93,9 @@
     <string name="detail_enable">对这个应用生效</string>
     <string name="detail_mode">选择模式</string>
     <string name="detail_builtin_hint">这个应用系统本来就有内置规则（%1$s），下面已经按系统的值填好，你可以直接在此基础上改</string>
-    <string name="note_mode_no_detail">当前模式没有专属参数；下方的界面自动适配和手动系统开关仍然可用。</string>
+    <string name="note_mode_no_detail">不处理：保持系统当前行为，不做任何修改。下方的界面自动适配仍然可用。</string>
+    <string name="section_fullscreen">通用全屏设置</string>
+    <string name="note_fullscreen">应用整屏拉伸显示（优先级最低，系统内置的平行窗口/固定横屏规则会被自动移除）。「整屏显示方式」决定哪些页面整屏，一般保持默认即可。</string>
     <string name="section_embedding">平行窗口设置</string>
     <string name="section_fixed">固定横屏设置</string>
     <string name="section_autoui">界面自动适配</string>

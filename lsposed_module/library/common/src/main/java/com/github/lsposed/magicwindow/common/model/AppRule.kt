@@ -63,6 +63,8 @@ data class AppRule(
     var transparentBar: String = "",
     var embAdaptCutout: String = "",
     var embRelaunchRule: String = "",
+    /** 规则版本，影响云控更新优先级 */
+    var version: String = "",
 
     // ── 固定横屏 fixed orientation ───────────────────────
     /** 实测恒为 "full,fo" */
@@ -81,6 +83,10 @@ data class AppRule(
     var foForceKillWhenSwitch: Boolean = false,
     /** 覆盖系统内置 197 条 disable="true"（需 A 档查询 hook 配合） */
     var foOverrideDisable: Boolean = true,
+    /** 禁用（直接控制是否生效，与 foOverrideDisable 互补） */
+    var foDisable: Boolean = false,
+    /** 禁用相机预览（黑名单语义，与 foSupportCameraPreview 互补） */
+    var foDisableCameraPreview: String = "",
 
     // ── 固定横屏：新版 JAR 新增属性 ───────────────────────
     /** 旋转方向调整，"0" 不调整 / "1" 调整（默认 0） */
@@ -109,14 +115,22 @@ data class AppRule(
     var autoUiSkippedActivityRule: String = "",
     var autoUiSkippedAppConfigChange: String = "",
     var autoUiVersionCode: String = "1",
+    /** 描述（便于管理） */
+    var autoUiDescribe: String = "",
 
     // ── 手动系统开关（不再根据 mode 自动推导） ───────────────────────────
     /** 平行窗口开关 */
     var swEmbedded: Boolean = false,
     /** 固定横屏开关 */
     var swFixedOrientation: Boolean = false,
-    /** 全屏拉伸开关 */
-    var swFullScreen: Boolean = false
+    /** 全屏开关 */
+    var swFullScreen: Boolean = false,
+    /** 4:3 比例开关 */
+    var ratio43Enable: Boolean = false,
+    /** 16:9 比例开关 */
+    var ratio169Enable: Boolean = false,
+    /** 全屏比例开关 */
+    var ratioFullScreenEnable: Boolean = false
 ) {
 
     /**
@@ -173,6 +187,7 @@ data class AppRule(
         put("transparentBar", transparentBar)
         put("embAdaptCutout", embAdaptCutout)
         put("embRelaunchRule", embRelaunchRule)
+        put("version", version)
 
         put("foSupportModes", foSupportModes)
         put("foDefaultSettings", foDefaultSettings)
@@ -187,6 +202,8 @@ data class AppRule(
         put("foAllowEmbInPortrait", foAllowEmbInPortrait)
         put("foForceKillWhenSwitch", foForceKillWhenSwitch)
         put("foOverrideDisable", foOverrideDisable)
+        put("foDisable", foDisable)
+        put("foDisableCameraPreview", foDisableCameraPreview)
         put("foAdjustmentOrientation", foAdjustmentOrientation)
         put("foAdjustmentOrientationActivity", foAdjustmentOrientationActivity)
         put("foRatio", foRatio)
@@ -204,10 +221,14 @@ data class AppRule(
         put("autoUiSkippedActivityRule", autoUiSkippedActivityRule)
         put("autoUiSkippedAppConfigChange", autoUiSkippedAppConfigChange)
         put("autoUiVersionCode", autoUiVersionCode)
+        put("autoUiDescribe", autoUiDescribe)
 
         put("swEmbedded", swEmbedded)
         put("swFixedOrientation", swFixedOrientation)
         put("swFullScreen", swFullScreen)
+        put("ratio43Enable", ratio43Enable)
+        put("ratio169Enable", ratio169Enable)
+        put("ratioFullScreenEnable", ratioFullScreenEnable)
     }
 
     companion object {
@@ -266,6 +287,7 @@ data class AppRule(
                 transparentBar = o.optString("transparentBar", d.transparentBar)
                 embAdaptCutout = o.optString("embAdaptCutout", d.embAdaptCutout)
                 embRelaunchRule = o.optString("embRelaunchRule", d.embRelaunchRule)
+                version = o.optString("version", d.version)
 
                 foSupportModes = o.optString("foSupportModes", d.foSupportModes)
                 foDefaultSettings = o.optString("foDefaultSettings", d.foDefaultSettings)
@@ -284,6 +306,9 @@ data class AppRule(
                 foForceKillWhenSwitch =
                     o.optBoolean("foForceKillWhenSwitch", d.foForceKillWhenSwitch)
                 foOverrideDisable = o.optBoolean("foOverrideDisable", d.foOverrideDisable)
+                foDisable = o.optBoolean("foDisable", d.foDisable)
+                foDisableCameraPreview =
+                    o.optString("foDisableCameraPreview", d.foDisableCameraPreview)
                 foAdjustmentOrientation =
                     o.optString("foAdjustmentOrientation", d.foAdjustmentOrientation)
                 foAdjustmentOrientationActivity =
@@ -305,10 +330,14 @@ data class AppRule(
                 autoUiSkippedAppConfigChange =
                     o.optString("autoUiSkippedAppConfigChange", d.autoUiSkippedAppConfigChange)
                 autoUiVersionCode = o.optString("autoUiVersionCode", d.autoUiVersionCode)
+                autoUiDescribe = o.optString("autoUiDescribe", d.autoUiDescribe)
 
                 swEmbedded = o.optBoolean("swEmbedded", d.swEmbedded)
                 swFixedOrientation = o.optBoolean("swFixedOrientation", d.swFixedOrientation)
                 swFullScreen = o.optBoolean("swFullScreen", d.swFullScreen)
+                ratio43Enable = o.optBoolean("ratio43Enable", d.ratio43Enable)
+                ratio169Enable = o.optBoolean("ratio169Enable", d.ratio169Enable)
+                ratioFullScreenEnable = o.optBoolean("ratioFullScreenEnable", d.ratioFullScreenEnable)
             }
         }
     }

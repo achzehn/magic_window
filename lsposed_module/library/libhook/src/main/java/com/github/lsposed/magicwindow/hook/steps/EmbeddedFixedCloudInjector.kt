@@ -2,6 +2,7 @@ package com.github.lsposed.magicwindow.hook.steps
 
 import com.github.lsposed.magicwindow.common.Constants
 import com.github.lsposed.magicwindow.common.model.CloudXmlCodec
+import com.github.lsposed.magicwindow.common.model.WindowMode
 import com.github.lsposed.magicwindow.hook.RuleStore
 import com.github.lsposed.magicwindow.hook.XLog
 import de.robv.android.xposed.XC_MethodHook
@@ -71,12 +72,19 @@ object EmbeddedFixedCloudInjector {
 
     /** 配置保存后由 RuleStore.onChange 调用：用缓存实例重新注入并热重载。 */
     fun injectNow() {
+        XLog.i("injectNow 调用，embeddedRule=${embeddedRule != null}, fixedController=${fixedController != null}")
         val config = RuleStore.global()
         if (config.embeddedCloudInject) {
             embeddedRule?.let { runCatching { doEmbedding(it) }.onFailure { e -> XLog.e("embedding 热更新失败", e) } }
+                ?: XLog.e("injectNow: embeddedRule 还是 null")
         }
         if (config.fixedCloudInject) {
             fixedController?.let { runCatching { doFixed(it) }.onFailure { e -> XLog.e("fixed 热更新失败", e) } }
+                ?: XLog.e("injectNow: fixedController 还是 null")
+        }
+        // 两个规则列表都重载完成后，再统一翻各应用的当前模式（模式支持与否依赖刚重载的规则）
+        embeddedRule?.let { er ->
+            runCatching { applyAppModes(er) }.onFailure { e -> XLog.e("翻应用模式失败", e) }
         }
     }
 
@@ -107,8 +115,17 @@ object EmbeddedFixedCloudInjector {
 
     private fun doEmbedding(embeddedRule: Any) {
         val rules = RuleStore.activeRules()
-            .filter { RuleStore.hasEmbeddingRule(it.packageName) }
-        if (rules.isEmpty()) return
+        // 增/改：平行窗口写完整属性；通用全屏写 fullRule 占位（系统据此才支持全屏）
+        val overrides = rules.filter {
+            it.mode == WindowMode.EMBEDDING || it.mode == WindowMode.FULL_SCREEN
+        }.associate {
+            it.packageName to if (it.mode == WindowMode.EMBEDDING)
+                CloudXmlCodec.embeddingAttrsOf(it) else CloudXmlCodec.fullScreenAttrsOf(it)
+        }
+        // 移除：选了固定横屏的应用必须移出平行窗口列表，否则继续按平行窗口跑
+        val removals = rules.filter { it.mode == WindowMode.FIXED_ORIENTATION }
+            .map { it.packageName }.toSet()
+        if (overrides.isEmpty() && removals.isEmpty()) return
 
         val projection = runCatching {
             XposedHelpers.callMethod(embeddedRule, "isProjection") as Boolean
@@ -119,25 +136,16 @@ object EmbeddedFixedCloudInjector {
             Constants.FILES_CLOUD_EMBEDDED_RULES[1]
         )
 
-        val overrides = rules.associate {
-            it.packageName to CloudXmlCodec.embeddingAttrsOf(it)
-        }
-        val fingerprint = overrides.toSortedMap().toString()
+        val fingerprint = overrides.toSortedMap().toString() + "|-" + removals.sorted()
         if (fingerprint != embFingerprint) {
             val base = readBaseTable(cloudFile, Constants.FILES_EMBEDDED_RULES)
-            val merged = CloudXmlCodec.mergeWith(base, overrides)
+            val merged = LinkedHashMap(CloudXmlCodec.mergeWith(base, overrides))
+            removals.forEach { merged.remove(it) }
             val xml = CloudXmlCodec.serialize(merged, CloudXmlCodec.KIND_EMBEDDING)
             if (writeFile(cloudFile, xml)) {
                 embFingerprint = fingerprint
-                XLog.i("已落盘 ${cloudFile.name}，合并 ${base.size}+覆盖 ${overrides.size}=${merged.size} 条")
+                XLog.i("已落盘 ${cloudFile.name}，合并 ${base.size}+覆盖 ${overrides.size}-移除 ${removals.size}=${merged.size} 条")
             } else return
-        }
-
-        // 翻用户开关：官方入口，系统自行持久化
-        rules.forEach { rule ->
-            runCatching {
-                XposedHelpers.callMethod(embeddedRule, "onAppSwitchChanged", rule.packageName, true)
-            }.onFailure { XLog.e("onAppSwitchChanged(${rule.packageName}) 失败", it) }
         }
 
         runCatching {
@@ -174,8 +182,14 @@ object EmbeddedFixedCloudInjector {
 
     private fun doFixed(controller: Any) {
         val rules = RuleStore.activeRules()
-            .filter { RuleStore.hasFixedOrientationRule(it.packageName) }
-        if (rules.isEmpty()) return
+        // 增/改：只有选了固定横屏的应用才写 fixed 规则
+        val overrides = rules.filter { it.mode == WindowMode.FIXED_ORIENTATION }
+            .associate { it.packageName to CloudXmlCodec.fixedAttrsOf(it) }
+        // 移除：选了平行窗口/通用全屏的应用必须移出 fixed 列表（fixed 系统优先级最高，不移会压制用户选择）
+        val removals = rules.filter {
+            it.mode == WindowMode.EMBEDDING || it.mode == WindowMode.FULL_SCREEN
+        }.map { it.packageName }.toSet()
+        if (overrides.isEmpty() && removals.isEmpty()) return
 
         val projection = runCatching {
             XposedHelpers.getBooleanField(controller, "mIsProjection")
@@ -186,37 +200,76 @@ object EmbeddedFixedCloudInjector {
             Constants.FILES_CLOUD_FIXED_ORI_RULES[1]
         )
 
-        val overrides = rules.associate {
-            it.packageName to CloudXmlCodec.fixedAttrsOf(it)
-        }
         val version = RuleStore.global().cloudDataVersion
-        val fingerprint = "$version|" + overrides.toSortedMap().toString()
+        val fingerprint = "$version|" + overrides.toSortedMap().toString() + "|-" + removals.sorted()
         if (fingerprint != fixedFingerprint) {
             val base = readBaseTable(cloudFile, Constants.FILES_FIXED_ORI_RULES)
-            val merged = CloudXmlCodec.mergeWith(base, overrides)
+            val merged = LinkedHashMap(CloudXmlCodec.mergeWith(base, overrides))
+            removals.forEach { merged.remove(it) }
             val xml = CloudXmlCodec.serialize(merged, CloudXmlCodec.KIND_FIXED, version)
             if (writeFile(cloudFile, xml)) {
                 fixedFingerprint = fingerprint
-                XLog.i("已落盘 ${cloudFile.name}，合并 ${base.size}+覆盖 ${overrides.size}=${merged.size} 条")
+                XLog.i("已落盘 ${cloudFile.name}，合并 ${base.size}+覆盖 ${overrides.size}-移除 ${removals.size}=${merged.size} 条")
             } else return
-        }
-
-        // 翻用户开关：fixed 开关走 onAppUiModeChanged(source, pkg, 2)，mode 2 即固定横屏
-        val embeddedRule = embeddedRule
-        if (embeddedRule != null) {
-            rules.forEach { rule ->
-                runCatching {
-                    XposedHelpers.callMethod(
-                        embeddedRule, "onAppUiModeChanged", "", rule.packageName, 2
-                    )
-                }.onFailure { XLog.e("onAppUiModeChanged(${rule.packageName}) 失败", it) }
-            }
         }
 
         runCatching {
             XposedHelpers.callMethod(controller, "updateFixedOrientationFromCloud")
             XLog.i("已触发 fixed 热重载")
         }.onFailure { XLog.e("触发 fixed 热重载失败", it) }
+    }
+
+    // ── 翻应用当前模式 ──────────────────────────────────────
+
+    /**
+     * 通过系统官方入口 onAppUiModeChanged 把每个应用翻成用户选择的模式，
+     * 系统自行持久化到 embedded_setting_config.xml 并立即生效。
+     * 系统 SettingRule 是单选状态机，mode 取值：0=不处理 1=平行窗口 2=固定横屏 3=通用全屏，
+     * 4/5/6 = 固定横屏下的比例档（4:3 / 16:9 / 全屏拉伸）。
+     *
+     * 注意必须在两个规则列表热重载之后调用：目标模式是否「受支持」取决于刚重载的规则
+     * （平行窗口←embedded 列表、固定横屏←fixed 列表、全屏←fullRule），不支持会被系统拒绝。
+     */
+    private fun applyAppModes(embeddedRule: Any) {
+        RuleStore.activeRules().forEach { rule ->
+            val hasRatio = rule.ratio43Enable || rule.ratio169Enable || rule.ratioFullScreenEnable
+            val target = when (rule.mode) {
+                WindowMode.EMBEDDING -> 1
+                WindowMode.FIXED_ORIENTATION -> when {
+                    rule.ratio43Enable -> 4
+                    rule.ratio169Enable -> 5
+                    rule.ratioFullScreenEnable -> 6
+                    else -> 2
+                }
+                WindowMode.FULL_SCREEN -> 3
+                WindowMode.OFF -> return@forEach
+            }
+            // 比例档的支持标记来自 createSetting 声明（规则列表的 supportModes 不一定覆盖），
+            // 先声明再选中，系统才有对应的支持位
+            if (rule.mode == WindowMode.FIXED_ORIENTATION && hasRatio) {
+                runCatching {
+                    // createSetting(pkg, enable, fixedOrientationEnable, fullScreenEnable,
+                    //               ratio_4_3_Enable, ratio_16_9_Enable, ratio_fullScreenEnable, isModified)
+                    XposedHelpers.callMethod(
+                        embeddedRule, "createSetting",
+                        rule.packageName,
+                        "",      // enable(平行窗口) 留空：当前是固定横屏模式
+                        "true",  // fixedOrientationEnable
+                        "",      // fullScreenEnable
+                        if (rule.ratio43Enable) "true" else "",
+                        if (rule.ratio169Enable) "true" else "",
+                        if (rule.ratioFullScreenEnable) "true" else "",
+                        "true"   // isModified
+                    )
+                }.onFailure { XLog.e("createSetting(${rule.packageName}) 失败", it) }
+            }
+            runCatching {
+                XposedHelpers.callMethod(
+                    embeddedRule, "onAppUiModeChanged", "", rule.packageName, target
+                )
+                XLog.i("已翻 ${rule.packageName} 到模式 $target")
+            }.onFailure { XLog.e("onAppUiModeChanged(${rule.packageName}, $target) 失败", it) }
+        }
     }
 
     // ── 读写 ─────────────────────────────────────────────────
