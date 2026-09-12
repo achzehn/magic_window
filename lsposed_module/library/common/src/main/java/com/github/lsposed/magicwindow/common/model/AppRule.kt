@@ -81,9 +81,7 @@ data class AppRule(
     var foFullForcePortraitActivity: String = "",
     var foAllowEmbInPortrait: Boolean = false,
     var foForceKillWhenSwitch: Boolean = false,
-    /** 覆盖系统内置 197 条 disable="true"（需 A 档查询 hook 配合） */
-    var foOverrideDisable: Boolean = true,
-    /** 禁用（直接控制是否生效，与 foOverrideDisable 互补） */
+    /** 禁用（直接控制是否生效） */
     var foDisable: Boolean = false,
     /** 禁用相机预览（黑名单语义，与 foSupportCameraPreview 互补） */
     var foDisableCameraPreview: String = "",
@@ -115,16 +113,8 @@ data class AppRule(
     var autoUiSkippedActivityRule: String = "",
     var autoUiSkippedAppConfigChange: String = "",
     var autoUiVersionCode: String = "1",
-    /** 描述（便于管理） */
-    var autoUiDescribe: String = "",
 
-    // ── 手动系统开关（不再根据 mode 自动推导） ───────────────────────────
-    /** 平行窗口开关 */
-    var swEmbedded: Boolean = false,
-    /** 固定横屏开关 */
-    var swFixedOrientation: Boolean = false,
-    /** 全屏开关 */
-    var swFullScreen: Boolean = false,
+    // ── 固定横屏显示比例（三选一） ──
     /** 4:3 比例开关 */
     var ratio43Enable: Boolean = false,
     /** 16:9 比例开关 */
@@ -132,14 +122,6 @@ data class AppRule(
     /** 全屏比例开关 */
     var ratioFullScreenEnable: Boolean = false
 ) {
-
-    /**
-     * 最终写入 embedded_setting_config.xml 的三个开关值。
-     * **仅返回手动设置的开关值，不再根据 mode 自动推导**。
-     * 用户需手动设置 swEmbedded、swFixedOrientation、swFullScreen。
-     */
-    fun resolveSwitches(): Triple<Boolean, Boolean, Boolean> =
-        Triple(swEmbedded, swFixedOrientation, swFullScreen)
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("packageName", packageName)
@@ -201,7 +183,6 @@ data class AppRule(
         put("foFullForcePortraitActivity", foFullForcePortraitActivity)
         put("foAllowEmbInPortrait", foAllowEmbInPortrait)
         put("foForceKillWhenSwitch", foForceKillWhenSwitch)
-        put("foOverrideDisable", foOverrideDisable)
         put("foDisable", foDisable)
         put("foDisableCameraPreview", foDisableCameraPreview)
         put("foAdjustmentOrientation", foAdjustmentOrientation)
@@ -221,11 +202,7 @@ data class AppRule(
         put("autoUiSkippedActivityRule", autoUiSkippedActivityRule)
         put("autoUiSkippedAppConfigChange", autoUiSkippedAppConfigChange)
         put("autoUiVersionCode", autoUiVersionCode)
-        put("autoUiDescribe", autoUiDescribe)
 
-        put("swEmbedded", swEmbedded)
-        put("swFixedOrientation", swFixedOrientation)
-        put("swFullScreen", swFullScreen)
         put("ratio43Enable", ratio43Enable)
         put("ratio169Enable", ratio169Enable)
         put("ratioFullScreenEnable", ratioFullScreenEnable)
@@ -236,7 +213,14 @@ data class AppRule(
             val d = AppRule(o.optString("packageName"))
             return d.apply {
                 enabled = o.optBoolean("enabled", d.enabled)
-                mode = WindowMode.from(o.optString("mode", d.mode.key))
+                mode = when {
+                    o.has("mode") -> WindowMode.from(o.optString("mode"))
+                    // 旧版（≤2.0）批量规则只写 sw 开关，按系统优先级迁移到 mode
+                    o.optBoolean("swFixedOrientation") -> WindowMode.FIXED_ORIENTATION
+                    o.optBoolean("swEmbedded") -> WindowMode.EMBEDDING
+                    o.optBoolean("swFullScreen") -> WindowMode.FULL_SCREEN
+                    else -> d.mode
+                }
 
                 supportFullSize = o.optBoolean("supportFullSize", d.supportFullSize)
                 isShowDivider = o.optBoolean("isShowDivider", d.isShowDivider)
@@ -305,7 +289,6 @@ data class AppRule(
                 foAllowEmbInPortrait = o.optBoolean("foAllowEmbInPortrait", d.foAllowEmbInPortrait)
                 foForceKillWhenSwitch =
                     o.optBoolean("foForceKillWhenSwitch", d.foForceKillWhenSwitch)
-                foOverrideDisable = o.optBoolean("foOverrideDisable", d.foOverrideDisable)
                 foDisable = o.optBoolean("foDisable", d.foDisable)
                 foDisableCameraPreview =
                     o.optString("foDisableCameraPreview", d.foDisableCameraPreview)
@@ -330,11 +313,7 @@ data class AppRule(
                 autoUiSkippedAppConfigChange =
                     o.optString("autoUiSkippedAppConfigChange", d.autoUiSkippedAppConfigChange)
                 autoUiVersionCode = o.optString("autoUiVersionCode", d.autoUiVersionCode)
-                autoUiDescribe = o.optString("autoUiDescribe", d.autoUiDescribe)
 
-                swEmbedded = o.optBoolean("swEmbedded", d.swEmbedded)
-                swFixedOrientation = o.optBoolean("swFixedOrientation", d.swFixedOrientation)
-                swFullScreen = o.optBoolean("swFullScreen", d.swFullScreen)
                 ratio43Enable = o.optBoolean("ratio43Enable", d.ratio43Enable)
                 ratio169Enable = o.optBoolean("ratio169Enable", d.ratio169Enable)
                 ratioFullScreenEnable = o.optBoolean("ratioFullScreenEnable", d.ratioFullScreenEnable)

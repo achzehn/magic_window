@@ -58,30 +58,16 @@ object EmbeddedFixedCloudInjector {
     }
 
     fun apply(pluginClassLoader: ClassLoader) {
-        val config = RuleStore.global()
-        if (!config.embeddedCloudInject && !config.fixedCloudInject) {
-            XLog.i("embedding/fixed 云控注入已关闭")
-            return
-        }
-
         // 两个解析类都实现自同一个 MiuiSystemEmbeddedRule，先挂 embedding 侧拿 mEmbeddedRule，
         // fixed 侧通过同一实例的 controller 字段即可拿到，避免重复 hook。
-        if (config.embeddedCloudInject) hookEmbedding(pluginClassLoader)
-        if (config.fixedCloudInject) hookFixed(pluginClassLoader)
+        hookEmbedding(pluginClassLoader)
+        hookFixed(pluginClassLoader)
     }
 
     /** 配置保存后由 RuleStore.onChange 调用：用缓存实例重新注入并热重载。 */
     fun injectNow() {
-        XLog.i("injectNow 调用，embeddedRule=${embeddedRule != null}, fixedController=${fixedController != null}")
-        val config = RuleStore.global()
-        if (config.embeddedCloudInject) {
-            embeddedRule?.let { runCatching { doEmbedding(it) }.onFailure { e -> XLog.e("embedding 热更新失败", e) } }
-                ?: XLog.e("injectNow: embeddedRule 还是 null")
-        }
-        if (config.fixedCloudInject) {
-            fixedController?.let { runCatching { doFixed(it) }.onFailure { e -> XLog.e("fixed 热更新失败", e) } }
-                ?: XLog.e("injectNow: fixedController 还是 null")
-        }
+        embeddedRule?.let { runCatching { doEmbedding(it) }.onFailure { e -> XLog.e("embedding 热更新失败", e) } }
+        fixedController?.let { runCatching { doFixed(it) }.onFailure { e -> XLog.e("fixed 热更新失败", e) } }
         // 两个规则列表都重载完成后，再统一翻各应用的当前模式（模式支持与否依赖刚重载的规则）
         embeddedRule?.let { er ->
             runCatching { applyAppModes(er) }.onFailure { e -> XLog.e("翻应用模式失败", e) }
@@ -200,8 +186,9 @@ object EmbeddedFixedCloudInjector {
             Constants.FILES_CLOUD_FIXED_ORI_RULES[1]
         )
 
-        val version = RuleStore.global().cloudDataVersion
-        val fingerprint = "$version|" + overrides.toSortedMap().toString() + "|-" + removals.sorted()
+        // dataVersion 用落盘时刻的时间戳：真正重写文件时版本自然递增，内容没变就不动
+        val version = System.currentTimeMillis()
+        val fingerprint = overrides.toSortedMap().toString() + "|-" + removals.sorted()
         if (fingerprint != fixedFingerprint) {
             val base = readBaseTable(cloudFile, Constants.FILES_FIXED_ORI_RULES)
             val merged = LinkedHashMap(CloudXmlCodec.mergeWith(base, overrides))

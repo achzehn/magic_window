@@ -7,7 +7,7 @@ import com.github.lsposed.magicwindow.data.SystemRuleSource
 /** 「系统已内置」徽标文案：把命中的内置规则种类拼成一行小字。 */
 object BuiltinUi {
 
-    private fun name(context: Context, kind: SystemRuleSource.Kind, pkg: String): String =
+    internal fun kindName(context: Context, kind: SystemRuleSource.Kind, pkg: String): String =
         when (kind) {
             SystemRuleSource.Kind.EMBEDDING -> context.getString(R.string.builtin_embedding)
             SystemRuleSource.Kind.FIXED ->
@@ -24,7 +24,7 @@ object BuiltinUi {
     fun badge(context: Context, pkg: String): String? {
         val kinds = SystemRuleSource.kindsOf(pkg)
         if (kinds.isEmpty()) return null
-        val body = kinds.joinToString(" · ") { name(context, it, pkg) }
+        val body = kinds.joinToString(" · ") { kindName(context, it, pkg) }
         return "${context.getString(R.string.builtin_prefix)}：$body"
     }
 }

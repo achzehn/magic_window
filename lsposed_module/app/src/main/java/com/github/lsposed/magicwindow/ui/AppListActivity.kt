@@ -5,9 +5,7 @@ import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
-import android.widget.EditText
 import androidx.activity.OnBackPressedCallback
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.github.lsposed.magicwindow.R
@@ -17,8 +15,8 @@ import com.github.lsposed.magicwindow.data.AppLoader
 import com.github.lsposed.magicwindow.data.ConfigRepository
 import com.github.lsposed.magicwindow.data.SystemRuleSource
 import com.github.lsposed.magicwindow.databinding.ActivityAppListBinding
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
-import org.json.JSONObject
 
 class AppListActivity : AppCompatActivity() {
 
@@ -26,11 +24,12 @@ class AppListActivity : AppCompatActivity() {
     private lateinit var adapter: AppAdapter
 
     private var all: List<AppItem> = emptyList()
+    private var loading = false
     private var keyword: String = ""
 
-    private enum class Filter { ALL, CONFIGURED, USER, SYSTEM, BUILTIN }
+    private enum class Filter { ALL, CONFIGURED, DISABLED, USER, SYSTEM }
 
-    private var filter = Filter.ALL
+    private var filter = Filter.CONFIGURED
 
     private var backCallback: OnBackPressedCallback? = null
 
@@ -60,9 +59,9 @@ class AppListActivity : AppCompatActivity() {
         binding.filterGroup.setOnCheckedStateChangeListener { _, ids ->
             filter = when (ids.firstOrNull()) {
                 R.id.chipConfigured -> Filter.CONFIGURED
+                R.id.chipDisabled -> Filter.DISABLED
                 R.id.chipUser -> Filter.USER
                 R.id.chipSystem -> Filter.SYSTEM
-                R.id.chipBuiltin -> Filter.BUILTIN
                 else -> Filter.ALL
             }
             apply()
@@ -70,7 +69,6 @@ class AppListActivity : AppCompatActivity() {
 
         binding.btnBatchApply.setOnClickListener { applyBatch() }
         binding.btnBatchClear.setOnClickListener { clearBatch() }
-        binding.btnBatchEditField.setOnClickListener { showBatchEditFieldDialog() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(false) {
             override fun handleOnBackPressed() = exitSelection()
@@ -82,6 +80,9 @@ class AppListActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (all.isNotEmpty()) apply()
+        // 首次进入时 HyperOS 会弹「获取已安装应用信息」授权框，授权返回后列表不会自动重建；
+        // 此刻 PackageManager 可见应用变多，重新加载一次
+        else if (!loading && packageManager.getInstalledApplications(0).size > all.size) loadApps()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -112,11 +113,14 @@ class AppListActivity : AppCompatActivity() {
     }
 
     private fun loadApps() {
+        if (loading) return
+        loading = true
         binding.progress.visibility = View.VISIBLE
         Thread {
             val list = AppLoader.load(this)
             runOnUiThread {
                 all = list
+                loading = false
                 binding.progress.visibility = View.GONE
                 apply()
             }
@@ -131,12 +135,12 @@ class AppListActivity : AppCompatActivity() {
                     item.packageName.lowercase().contains(keyword)
             val hitFilter = when (filter) {
                 Filter.ALL -> true
-                // 「已配置」= 用户手动配过的 + 系统内置扫出来的，两类都算已配置
-                Filter.CONFIGURED -> configured.containsKey(item.packageName) ||
-                        SystemRuleSource.kindsOf(item.packageName).isNotEmpty()
+                // 「已设置」只显示用户手动保存过规则的应用
+                Filter.CONFIGURED -> configured.containsKey(item.packageName)
+                // 「被系统禁用」= 系统在固定横屏名单里明确写了 disable="true" 的应用
+                Filter.DISABLED -> SystemRuleSource.isFixedDisabled(item.packageName)
                 Filter.USER -> !item.isSystem
                 Filter.SYSTEM -> item.isSystem
-                Filter.BUILTIN -> SystemRuleSource.kindsOf(item.packageName).isNotEmpty()
             }
             hitKeyword && hitFilter
         }
@@ -144,6 +148,22 @@ class AppListActivity : AppCompatActivity() {
     }
 
     private fun open(item: AppItem) {
+        // 系统已内置规则且用户还没保存过：先弹窗告知，避免误改内置行为
+        val builtinKinds = SystemRuleSource.kindsOf(item.packageName)
+        if (builtinKinds.isNotEmpty() && ConfigRepository.rule(item.packageName) == null) {
+            val names = builtinKinds.joinToString(" · ") { BuiltinUi.kindName(this, it, item.packageName) }
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.builtin_edit_title)
+                .setMessage(getString(R.string.builtin_edit_message, names))
+                .setPositiveButton(R.string.builtin_edit_ok) { _, _ -> startDetail(item) }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+            return
+        }
+        startDetail(item)
+    }
+
+    private fun startDetail(item: AppItem) {
         startActivity(
             Intent(this, AppDetailActivity::class.java)
                 .putExtra(AppDetailActivity.EXTRA_PACKAGE, item.packageName)
@@ -212,86 +232,6 @@ class AppListActivity : AppCompatActivity() {
         apply()
         Snackbar.make(binding.root, getString(R.string.batch_done, pkgs.size), Snackbar.LENGTH_SHORT)
             .show()
-    }
-
-    /** 批量编辑任意字段 */
-    private fun showBatchEditFieldDialog() {
-        val pkgs = adapter.selected.toList()
-        if (pkgs.isEmpty()) {
-            Snackbar.make(binding.root, R.string.capture_none_selected, Snackbar.LENGTH_SHORT).show()
-            return
-        }
-
-        val view = layoutInflater.inflate(R.layout.dialog_batch_edit_field, null)
-        val etField = view.findViewById<EditText>(R.id.etField)
-        val etValue = view.findViewById<EditText>(R.id.etValue)
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.batch_edit_field_title)
-            .setMessage(R.string.batch_edit_field_desc)
-            .setView(view)
-            .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(R.string.batch_apply) { _, _ ->
-                val field = etField.text.toString().trim()
-                val value = etValue.text.toString().trim()
-                if (field.isEmpty() || value.isEmpty()) {
-                    Snackbar.make(binding.root, "字段名和值不能为空", Snackbar.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                applyBatchField(pkgs, field, value)
-            }
-            .show()
-    }
-
-    private fun applyBatchField(pkgs: List<String>, field: String, value: String) {
-        val rules = pkgs.map { pkg ->
-            val original = ConfigRepository.ruleOrNew(pkg)
-            original.enabled = true
-            // 动态设置字段：通过 JSON 方式
-            setFieldViaJson(original, field, value)
-        }
-        ConfigRepository.saveRules(rules)
-        exitSelection()
-        apply()
-        Snackbar.make(binding.root, getString(R.string.batch_done, pkgs.size), Snackbar.LENGTH_SHORT)
-            .show()
-    }
-
-    /** 通过 JSON 方式动态设置字段（傻瓜化：用户填字段名和值，我们自动映射） */
-    private fun setFieldViaJson(rule: com.github.lsposed.magicwindow.common.model.AppRule, field: String, value: String): com.github.lsposed.magicwindow.common.model.AppRule {
-        val json = rule.toJson()
-        try {
-            // 特殊处理：mode 字段需要转为 WindowMode
-            if (field == "mode") {
-                val mode = when (value.lowercase()) {
-                    "off", "0" -> WindowMode.OFF
-                    "full", "fullscreen", "1" -> WindowMode.FULL_SCREEN
-                    "embedding", "2" -> WindowMode.EMBEDDING
-                    "fixed", "fixed_orientation", "3" -> WindowMode.FIXED_ORIENTATION
-                    else -> WindowMode.EMBEDDING
-                }
-                json.put("mode", mode.key)
-            } else {
-                // 尝试自动推断类型
-                val typedValue = try {
-                    when {
-                        value.lowercase() == "true" -> true
-                        value.lowercase() == "false" -> false
-                        value.matches(Regex("^-?\\d+$")) -> value.toInt()
-                        value.matches(Regex("^-?\\d+\\.\\d+$")) -> value.toDouble()
-                        else -> value
-                    }
-                } catch (e: Exception) {
-                    value
-                }
-                json.put(field, typedValue)
-            }
-            // 从 JSON 重新创建规则
-            return com.github.lsposed.magicwindow.common.model.AppRule.fromJson(json)
-        } catch (e: Exception) {
-            // 忽略无效字段，返回原规则
-            return rule
-        }
     }
 }
 

@@ -52,42 +52,31 @@ object SystemRuleSource {
     @Volatile
     private var loadStarted = false
 
-    /** 可在任意线程调用：规则尚未加载时阻塞当前线程直到加载完成（内部只会真正加载一次） */
-    fun whenLoaded(action: () -> Unit) {
-        if (!loaded) {
-            synchronized(loadLock) {
-                if (!loaded) {
-                    if (!loadStarted) {
-                        loadStarted = true
-                        Thread({ doLoad() }, "system-rule-loader").start()
-                    }
-                    while (!loaded) {
-                        try {
-                            loadLock.wait()
-                        } catch (e: InterruptedException) {
-                            Thread.currentThread().interrupt()
-                            break
-                        }
-                    }
-                }
-            }
-        }
-        action()
-    }
+    /** 加载完成前挂起的 UI 回调，doLoad 结束后在主线程统一派发 */
+    private val pendingCallbacks = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
 
-    /** 在后台线程预热，App 启动时调用一次，列表/详情打开时基本已经加载完 */
+    /** 后台预热：App 启动时调用一次，列表/详情打开时基本已经加载完 */
     fun preload() {
         if (loaded || loadStarted) return
         synchronized(loadLock) {
             if (loaded || loadStarted) return
             loadStarted = true
-            Thread({ doLoad() }, "system-rule-loader").start()
+            Thread({ doLoad() }, "system-rule-loader").apply {
+                isDaemon = true
+                priority = Thread.MIN_PRIORITY
+            }.start()
         }
     }
 
-    /** 切换回主线程执行的便捷包装 */
-    fun whenLoadedOnMain(action: () -> Unit) =
-        Thread { whenLoaded { mainHandler.post(action) } }.start()
+    /** 加载完成后在主线程执行；已加载完则立即调度 */
+    fun whenLoadedOnMain(action: () -> Unit) {
+        if (loaded) {
+            mainHandler.post(action)
+            return
+        }
+        pendingCallbacks += action
+        preload()
+    }
 
     // ── 加载与选文件 ─────────────────────────────────────────
 
@@ -120,9 +109,10 @@ object SystemRuleSource {
             messages += "读取系统规则出错：${t.message ?: t.javaClass.simpleName}"
         }
         errorMessage = messages.firstOrNull()
-        synchronized(loadLock) {
-            loaded = true
-            loadLock.notifyAll()
+        synchronized(loadLock) { loaded = true }
+        mainHandler.post {
+            pendingCallbacks.forEach { runCatching { it() } }
+            pendingCallbacks.clear()
         }
     }
 
@@ -379,13 +369,14 @@ object SystemRuleSource {
         return if (tier == SCOPE_FO) value.toBoolOrNull() else null
     }
 
-    // ── 布尔解析（系统文件里 true/false 与 1/0 两种写法都有） ──
-
-    private fun String?.toBoolOrNull(): Boolean? = when (this?.trim()?.lowercase()) {
-        "true", "1" -> true
-        "false", "0" -> false
-        else -> null
-    }
-
-    private fun String?.toBool(): Boolean = toBoolOrNull() == true
 }
+
+// ── 布尔解析（来源文件里有 true/false、1/0，Magisk 导出还有 yes/no） ──
+
+internal fun String?.toBoolOrNull(): Boolean? = when (this?.trim()?.lowercase()) {
+    "true", "1", "yes" -> true
+    "false", "0", "no" -> false
+    else -> null
+}
+
+internal fun String?.toBool(): Boolean = toBoolOrNull() == true

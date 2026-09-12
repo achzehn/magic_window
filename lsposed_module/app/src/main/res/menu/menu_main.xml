@@ -9,30 +9,10 @@
         app:showAsAction="never" />
 
     <item
-        android:id="@+id/action_log_group"
-        android:title="@string/menu_log_group"
-        app:showAsAction="never">
-        <menu>
-            <item
-                android:id="@+id/action_preview_log"
-                android:title="@string/action_preview_log"
-                app:showAsAction="never" />
-            <item
-                android:id="@+id/action_export_log"
-                android:title="@string/action_export_log"
-                app:showAsAction="never" />
-        </menu>
-    </item>
-
-    <item
         android:id="@+id/action_config_group"
         android:title="@string/menu_config_group"
         app:showAsAction="never">
         <menu>
-            <item
-                android:id="@+id/action_rule_editor"
-                android:title="@string/rule_editor_title"
-                app:showAsAction="never" />
             <item
                 android:id="@+id/action_export_config"
                 android:title="@string/action_export_config"

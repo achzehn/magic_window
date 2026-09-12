@@ -3,3 +3,5 @@ lsposed_module/magicwindow.keystore
 lsposed_module/app/build.gradle.kts
 tmp/
 output/
+*/.agents/
+*/skills-*.json

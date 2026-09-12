@@ -1,5 +1,8 @@
 package com.github.lsposed.magicwindow.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.text.Editable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
@@ -11,6 +14,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import com.github.lsposed.magicwindow.R
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
@@ -121,13 +125,18 @@ object UiKit {
         return tv
     }
 
-    /** 文本输入行：[en] 为原始英文属性名，与提示文字一起显示在输入框下方 */
+    /**
+     * 文本输入行：[en] 为原始英文属性名，与提示文字一起显示在输入框下方。
+     * [onCapture] 非空时在输入框尾部显示「抓取页面」按钮（用于填 Activity 类名的字段）。
+     * 长按输入框把当前值复制到剪贴板。
+     */
     fun textRow(
         parent: ViewGroup,
         label: String,
         en: String? = null,
         value: String,
         hint: String? = null,
+        onCapture: (() -> Unit)? = null,
         onChange: (String) -> Unit
     ): TextInputLayout {
         val til = LayoutInflater.from(parent.context)
@@ -142,6 +151,18 @@ object UiKit {
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
             override fun afterTextChanged(s: Editable?) = onChange(s?.toString().orEmpty())
         })
+        et.setOnLongClickListener { v ->
+            val cm = v.context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText(label, et.text?.toString().orEmpty()))
+            Toast.makeText(v.context, R.string.capture_copied, Toast.LENGTH_SHORT).show()
+            true
+        }
+        if (onCapture != null) {
+            til.endIconMode = TextInputLayout.END_ICON_CUSTOM
+            til.setEndIconDrawable(R.drawable.ic_search)
+            til.setEndIconContentDescription(R.string.capture_pages)
+            til.setEndIconOnClickListener { onCapture() }
+        }
         parent.addView(til)
         return til
     }

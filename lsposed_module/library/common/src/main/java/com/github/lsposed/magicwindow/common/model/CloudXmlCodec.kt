@@ -205,7 +205,7 @@ object CloudXmlCodec {
         if (rule.foAutoUI) put("autoUI", "true")
         if (rule.foIsShowDivider) put("isShowDivider", "true")
         if (rule.foSkipSelfAdaptive) put("skipSelfAdaptive", "true")
-        // disable 直接控制是否生效（与 foOverrideDisable 互补）
+        // disable 直接控制固定横屏是否对该应用生效
         if (rule.foDisable) put("disable", "true")
 
         putIfNotEmpty("compatChange", rule.foCompatChange)

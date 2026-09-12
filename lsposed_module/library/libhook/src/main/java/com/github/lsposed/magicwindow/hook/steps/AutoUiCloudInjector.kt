@@ -43,11 +43,6 @@ object AutoUiCloudInjector {
 
     fun apply(pluginClassLoader: ClassLoader, systemServerClassLoader: ClassLoader) {
         systemServerCl = systemServerClassLoader
-        val config = RuleStore.global()
-        if (!config.autoUiCloudInject) {
-            XLog.i("autoui 云控注入已关闭")
-            return
-        }
 
         val parsingClass = runCatching {
             XposedHelpers.findClass(Constants.CLASS_PARSING_AUTO_UI, pluginClassLoader)
@@ -82,14 +77,10 @@ object AutoUiCloudInjector {
             )
             XLog.i("已挂钩 MiuiParsingAutoUI.loadPackage")
         }.onFailure { XLog.e("挂钩 loadPackage 失败", it) }
-
-        // SettingsCloudData 位于 miui-framework（framework 侧），要用 system_server ClassLoader 查找
-        if (config.hookCloudDataString) hookCloudDataString(systemServerClassLoader)
     }
 
     /** 配置保存后由 RuleStore.onChange 调用：用缓存的解析类与 system rule 重新落盘并热重载。 */
     fun injectNow() {
-        if (!RuleStore.global().autoUiCloudInject) return
         val parsingClass = parsingClassRef ?: return
         val cl = systemServerCl ?: return
         runCatching {
@@ -105,7 +96,7 @@ object AutoUiCloudInjector {
     /** @return 本次是否真的把云控文件落盘成功 */
     private fun inject(parsingClass: Class<*>, systemServerClassLoader: ClassLoader): Boolean {
         val rules = RuleStore.autoUiRules()
-        val version = RuleStore.global().cloudDataVersion
+        val version = Constants.AUTO_UI_CLOUD_DATA_VERSION
 
         if (rules.isEmpty()) {
             if (!emptyLogged) {
@@ -193,31 +184,5 @@ object AutoUiCloudInjector {
             )
             if (log) XLog.i("已抬高 mLastCloudConfigVersion=$version")
         }.onFailure { XLog.e("抬高云控版本失败", it) }
-    }
-
-    /**
-     * 更贴近原生的替代做法（4.9.5）：让系统自己把版本号写进去，
-     * 避免直接改 protected static 字段。默认关闭。
-     */
-    private fun hookCloudDataString(cl: ClassLoader) {
-        runCatching {
-            val clazz = XposedHelpers.findClass(Constants.CLASS_SETTINGS_CLOUD_DATA, cl)
-            clazz.declaredMethods
-                .filter { it.name == Constants.M_GET_CLOUD_DATA_STRING }
-                .forEach { m ->
-                    de.robv.android.xposed.XposedBridge.hookMethod(m, object : XC_MethodHook() {
-                        override fun afterHookedMethod(param: MethodHookParam) {
-                            val module = param.args.getOrNull(1) as? String ?: return
-                            val key = param.args.getOrNull(2) as? String ?: return
-                            if (module == Constants.AUTO_UI_CONTROL_MODULE &&
-                                key == Constants.CLOUD_KEY_DATA_VERSION
-                            ) {
-                                param.result = RuleStore.global().cloudDataVersion.toString()
-                            }
-                        }
-                    })
-                }
-            XLog.i("已挂钩 SettingsCloudData.getCloudDataString")
-        }.onFailure { XLog.e("挂钩 getCloudDataString 失败", it) }
     }
 }

@@ -21,32 +21,8 @@ enum class WindowMode(val key: String) {
     /** 固定横屏 · 信箱模式（优先级最高） */
     FIXED_ORIENTATION("fixedOrientation");
 
-    /** 优先级权重，数值越大越优先。用于冲突判定时自动修正。 */
-    val priority: Int
-        get() = when (this) {
-            OFF -> -1
-            FULL_SCREEN -> 0
-            EMBEDDING -> 1
-            FIXED_ORIENTATION -> 2
-        }
-
     companion object {
         fun from(key: String?): WindowMode =
             entries.firstOrNull { it.key == key } ?: OFF
-
-        /**
-         * 由三个用户开关反推主模式（按优先级取最高的那个）。
-         * 对应 4.10.5 中 embedded_setting_config.xml 的开关语义。
-         */
-        fun fromSwitches(
-            embedded: Boolean,
-            fixedOrientation: Boolean,
-            fullScreen: Boolean
-        ): WindowMode = when {
-            fixedOrientation -> FIXED_ORIENTATION
-            embedded -> EMBEDDING
-            fullScreen -> FULL_SCREEN
-            else -> OFF
-        }
     }
 }

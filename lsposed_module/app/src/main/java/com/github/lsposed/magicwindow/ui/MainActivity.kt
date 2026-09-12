@@ -1,22 +1,30 @@
 package com.github.lsposed.magicwindow.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
+import android.graphics.Typeface
 import android.os.Bundle
-import android.os.Environment
+import android.text.InputType
 import android.view.Menu
 import android.view.MenuItem
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.github.lsposed.magicwindow.ModuleStatus
 import com.github.lsposed.magicwindow.R
 import com.github.lsposed.magicwindow.data.ConfigExporter
 import com.github.lsposed.magicwindow.data.ConfigRepository
-import com.github.lsposed.magicwindow.data.LogExporter
 import com.github.lsposed.magicwindow.databinding.ActivityMainBinding
+import com.github.lsposed.magicwindow.mcp.McpServer
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import java.io.File
@@ -28,19 +36,6 @@ class MainActivity : AppCompatActivity() {
     /** 桌面图标入口，停用它就等于隐藏图标 */
     private val launcherAlias by lazy {
         ComponentName(this, "com.github.lsposed.magicwindow.ui.LauncherAlias")
-    }
-
-    /** 导出日志文件选择器 */
-    private val logExporter = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("text/plain")
-    ) { uri ->
-        uri?.let {
-            if (LogExporter.exportLogs(this, it)) {
-                Snackbar.make(binding.root, R.string.log_export_success, Snackbar.LENGTH_SHORT).show()
-            } else {
-                Snackbar.make(binding.root, R.string.log_export_failed, Snackbar.LENGTH_SHORT).show()
-            }
-        }
     }
 
     /** 导出配置文件选择器 */
@@ -61,20 +56,16 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
-            when (val result = ConfigExporter.importConfig(this, it)) {
-                is ConfigExporter.ImportResult -> {
-                    if (result.success && result.globalConfig != null && result.rules != null) {
-                        ConfigExporter.showImportConfirm(this, result) {
-                            ConfigRepository.saveGlobal(result.globalConfig!!)
-                            ConfigRepository.saveRules(result.rules!!)
-                            Snackbar.make(binding.root, R.string.config_import_success, Snackbar.LENGTH_SHORT).show()
-                            renderStatus()
-                        }
-                    } else {
-                        val message = result.errorMessage ?: getString(R.string.config_import_failed)
-                        Snackbar.make(binding.root, message, Snackbar.LENGTH_SHORT).show()
-                    }
+            val result = ConfigExporter.importConfig(this, it)
+            if (result.success && result.rules != null) {
+                ConfigExporter.showImportConfirm(this, result) {
+                    ConfigRepository.replaceAllRules(result.rules!!)
+                    Snackbar.make(binding.root, R.string.config_import_success, Snackbar.LENGTH_SHORT).show()
+                    renderStatus()
                 }
+            } else {
+                val message = result.errorMessage ?: getString(R.string.config_import_failed)
+                Snackbar.make(binding.root, message, Snackbar.LENGTH_SHORT).show()
             }
         }
     }
@@ -94,9 +85,133 @@ class MainActivity : AppCompatActivity() {
         binding.cardApps.setOnClickListener {
             startActivity(Intent(this, AppListActivity::class.java))
         }
-        binding.cardExperimental.setOnClickListener {
-            startActivity(Intent(this, ExperimentalActivity::class.java))
+
+        binding.swMcp.setOnCheckedChangeListener { _, on ->
+            if (on) {
+                if (!McpServer.start(applicationContext)) {
+                    binding.swMcp.isChecked = false
+                    Snackbar.make(binding.root, R.string.mcp_start_failed, Snackbar.LENGTH_SHORT).show()
+                }
+            } else {
+                McpServer.stop()
+            }
+            renderMcpState()
         }
+
+        // 地址点击复制；端口/令牌点击进入编辑
+        fun bindCopy(view: TextView, text: () -> String) {
+            view.setOnClickListener { copyText(text()) }
+            view.setOnLongClickListener { copyText(text()); true }
+        }
+        bindCopy(binding.tvMcpLoopback) { McpServer.loopbackUrl() }
+        bindCopy(binding.tvMcpLan) { McpServer.localUrl() }
+        binding.tvMcpPort.setOnClickListener { showMcpPortDialog() }
+        binding.tvMcpToken.setOnClickListener { showMcpTokenDialog() }
+        binding.tvMcpToken.setOnLongClickListener {
+            McpServer.token(this).takeIf { it.isNotEmpty() }?.let { copyText(it) }
+            true
+        }
+
+        binding.btnMcpJson.setOnClickListener { showMcpClientJsonDialog() }
+    }
+
+    /** 修改端口：保存后若服务在运行则自动重启换端口 */
+    private fun showMcpPortDialog() {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            hint = getString(R.string.mcp_port_hint)
+            setText(McpServer.port(this@MainActivity).toString())
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.mcp_port_title)
+            .setView(input)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.mcp_action_save) { _, _ ->
+                val value = input.text.toString().toIntOrNull() ?: 0
+                if (value !in 1024..65535) {
+                    Snackbar.make(binding.root, R.string.mcp_port_invalid, Snackbar.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                if (!McpServer.setPort(applicationContext, value)) {
+                    Snackbar.make(binding.root, R.string.mcp_start_failed, Snackbar.LENGTH_SHORT).show()
+                }
+                renderMcpState()
+            }
+            .show()
+    }
+
+    /** 修改令牌：可随机生成，留空表示不校验 */
+    private fun showMcpTokenDialog() {
+        val input = EditText(this).apply {
+            hint = getString(R.string.mcp_token_hint)
+            setText(McpServer.token(this@MainActivity))
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.mcp_token_title)
+            .setView(input)
+            .setNeutralButton(R.string.mcp_action_random, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.mcp_action_save, null)
+            .create()
+            .apply {
+                setOnShowListener {
+                    // 随机生成只填入输入框，不直接保存
+                    getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                        input.setText(McpServer.randomToken())
+                    }
+                    getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        McpServer.setToken(applicationContext, input.text.toString())
+                        renderMcpState()
+                        dismiss()
+                    }
+                }
+            }
+            .show()
+    }
+
+    /**
+     * 预览 MCP 客户端接入配置 JSON（自动带上当前局域网 IP），
+     * 点击/长按 JSON 可复制，另带「复制」按钮。
+     */
+    private fun showMcpClientJsonDialog() {
+        val json = McpServer.clientConfigJson()
+        val jsonView = TextView(this).apply {
+            text = json
+            typeface = Typeface.MONOSPACE
+            textSize = 12f
+            setTextIsSelectable(false)
+            setOnLongClickListener { copyText(json); true }
+            setOnClickListener { copyText(json) }
+        }
+        val container = ScrollView(this).apply {
+            val pad = (resources.displayMetrics.density * 20).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(context).apply {
+                    text = getString(R.string.mcp_json_hint)
+                    setTextAppearance(R.style.Text_MagicWindow_Desc)
+                })
+                addView(jsonView, LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = (resources.displayMetrics.density * 8).toInt()
+                })
+            })
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.mcp_json_title)
+            .setView(container)
+            .setPositiveButton(R.string.action_copy) { _, _ -> copyText(json) }
+            .setNegativeButton(R.string.action_close, null)
+            .show()
+    }
+
+    private fun copyText(text: String) {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("magic-window", text))
+        Snackbar.make(binding.root, R.string.capture_copied, Snackbar.LENGTH_SHORT).show()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -116,14 +231,6 @@ class MainActivity : AppCompatActivity() {
             }
             true
         }
-        R.id.action_export_log -> {
-            logExporter.launch("magicwindow_logs_${System.currentTimeMillis()}.txt")
-            true
-        }
-        R.id.action_preview_log -> {
-            LogExporter.showLogPreview(this)
-            true
-        }
         R.id.action_export_config -> {
             configExporter.launch("magicwindow_config_${System.currentTimeMillis()}.json")
             true
@@ -135,10 +242,6 @@ class MainActivity : AppCompatActivity() {
                     "text/plain"
                 )
             )
-            true
-        }
-        R.id.action_rule_editor -> {
-            startActivity(Intent(this, RuleEditorActivity::class.java))
             true
         }
 
@@ -175,6 +278,18 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         renderStatus()
+        renderMcpState()
+    }
+
+    private fun renderMcpState() {
+        binding.swMcp.isChecked = McpServer.isRunning()
+        binding.tvMcpState.text =
+            if (McpServer.isRunning()) getString(R.string.mcp_running)
+            else getString(R.string.mcp_stopped)
+        binding.tvMcpLoopback.text = McpServer.loopbackUrl()
+        binding.tvMcpLan.text = McpServer.localUrl()
+        binding.tvMcpPort.text = McpServer.port(this).toString()
+        binding.tvMcpToken.text = McpServer.token(this).ifEmpty { getString(R.string.mcp_token_none) }
     }
 
     private fun renderStatus() {

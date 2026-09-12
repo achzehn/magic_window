@@ -1,29 +1,45 @@
 package com.github.lsposed.magicwindow.ui
 
-import android.content.res.ColorStateList
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.os.Bundle
-import android.view.Menu
-import android.view.MenuItem
+import android.text.Editable
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextWatcher
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
+import android.widget.BaseAdapter
+import android.widget.CheckedTextView
+import android.widget.EditText
 import android.widget.LinearLayout
-import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.ListView
+import android.widget.ScrollView
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.github.lsposed.magicwindow.R
 import com.github.lsposed.magicwindow.common.model.AppRule
-import com.github.lsposed.magicwindow.common.model.ConflictChecker
 import com.github.lsposed.magicwindow.common.model.WindowMode
 import com.github.lsposed.magicwindow.data.ConfigRepository
 import com.github.lsposed.magicwindow.data.SystemRuleSource
 import com.github.lsposed.magicwindow.databinding.ActivityAppDetailBinding
+import com.github.lsposed.magicwindow.mcp.McpServer
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 
 /**
- * 单应用详情：暴露 4.10.4 实测出的全部规则属性，并实时做互斥优先级冲突检测。
+ * 单应用详情：暴露 4.10.4 实测出的全部规则属性。
  *
  * 控件选型：
  *  - 开关型属性 → 可勾选标签（点一下选中即为开启）
@@ -53,15 +69,14 @@ class AppDetailActivity : AppCompatActivity() {
     /** 简单模式只显示当前模式的常用项；高级模式显示完整参数表。记忆在全局配置里 */
     private var simpleMode = true
 
-    /** 字段 key → 控件，用于冲突高亮定位 */
+    /** 系统明确禁用的应用默认锁定表单；用户打开「强制修改」后才可编辑 */
+    private var forceEdit = false
+
+    /** 字段 key → 控件，用于互斥选项（如显示比例三选一）联动 */
     private val fieldViews = linkedMapOf<String, View>()
 
-    private val captureLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val cls = result.data?.getStringExtra(CaptureActivity.EXTRA_RESULT) ?: return@registerForActivityResult
-        askTargetField(cls)
-    }
+    /** 页面类名字段的填充方式：LIST 逗号并列；PAIR 写成「页面:*」配对 */
+    private enum class Fill { LIST, PAIR }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,11 +113,18 @@ class AppDetailActivity : AppCompatActivity() {
             SystemRuleSource.whenLoadedOnMain { onSystemRulesReady() }
         }
 
+        // 系统明确禁用的应用：默认锁定，开关强制修改后才可编辑
+        binding.cardForceEdit.visibility =
+            if (SystemRuleSource.isFixedDisabled(pkg)) View.VISIBLE else View.GONE
+        binding.swForceEdit.setOnCheckedChangeListener { _, v ->
+            forceEdit = v
+            applyEditState()
+        }
+
         binding.switchEnabled.isChecked = rule.enabled
         binding.switchEnabled.setOnCheckedChangeListener { _, v ->
             dirty = true
             rule.enabled = v
-            validate()
         }
 
         binding.modeGroup.check(buttonOf(rule.mode))
@@ -110,38 +132,26 @@ class AppDetailActivity : AppCompatActivity() {
             if (!isChecked) return@addOnButtonCheckedListener
             dirty = true
             rule.mode = modeOf(checkedId)
+            applyModeDefaults()
             updateModeDesc()
             buildForm()
-            validate()
         }
         updateModeDesc()
 
-        // 简单 / 高级切换：记忆在全局配置，切换只重建表单，不动数据
-        simpleMode = ConfigRepository.global().detailSimpleMode
-        binding.detailModeGroup.check(
-            if (simpleMode) R.id.btnDetailSimple else R.id.btnDetailAdvanced
-        )
+        // 简单 / 高级切换：默认简单模式，切换只重建表单，不动数据
+        binding.detailModeGroup.check(R.id.btnDetailSimple)
         binding.detailModeGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (!isChecked) return@addOnButtonCheckedListener
             simpleMode = checkedId == R.id.btnDetailSimple
-            ConfigRepository.global().let { it.detailSimpleMode = simpleMode; ConfigRepository.saveGlobal(it) }
             buildForm()
-            validate()
-        }
-
-        binding.btnFix.setOnClickListener {
-            ConflictChecker.autoFix(rule)
-            dirty = true
-            binding.modeGroup.check(buttonOf(rule.mode))
-            buildForm()
-            validate()
         }
 
         binding.btnSave.setOnClickListener { save() }
         binding.btnReset.setOnClickListener { resetToBuiltin() }
+        binding.btnExport.setOnClickListener { exportCurrentRule() }
+        binding.btnImport.setOnClickListener { showRuleImportDialog() }
 
         buildForm()
-        validate()
     }
 
     /** 系统规则表后台加载完成：未动过的新规则用内置值重建表单，并刷新徽标与读取提示 */
@@ -151,16 +161,68 @@ class AppDetailActivity : AppCompatActivity() {
             SystemRuleSource.applyDefaults(rule)
             binding.modeGroup.check(buttonOf(rule.mode))
             buildForm()
-            validate()
         }
         showBuiltinCard()
+        // 禁用状态要等规则表加载完成后才可知，这里再刷新一次卡片与锁定状态
+        binding.cardForceEdit.visibility =
+            if (SystemRuleSource.isFixedDisabled(pkg)) View.VISIBLE else View.GONE
+        applyEditState()
         SystemRuleSource.errorMessage?.let {
             Snackbar.make(binding.root, it, Snackbar.LENGTH_LONG).show()
         }
     }
 
     /**
-     * 恢复默认：有内置规则的应用恢复成系统内置值，没有内置规则的恢复成空默认。
+     * 系统禁用的应用默认锁定整张表单（模式按钮、开关、输入框、保存），
+     * 「强制修改」打开后才解锁；简单/高级切换与恢复默认始终可用。
+     */
+    private fun applyEditState() {
+        val locked = SystemRuleSource.isFixedDisabled(pkg) && !forceEdit
+        fun deep(root: View, enabled: Boolean) {
+            root.isEnabled = enabled
+            (root as? ViewGroup)?.let { g ->
+                for (i in 0 until g.childCount) deep(g.getChildAt(i), enabled)
+            }
+        }
+        deep(binding.container, !locked)
+        deep(binding.modeGroup, !locked)
+        binding.switchEnabled.isEnabled = !locked
+        binding.btnSave.isEnabled = !locked
+        binding.btnImport.isEnabled = !locked
+        binding.container.alpha = if (locked) 0.45f else 1f
+    }
+
+    /**
+     * 按说明文档的常用样例补默认值（只在用户切换模式/重置时调用，不覆盖内置读取）：
+     *   通用全屏 → fullRule="nra:cr:rcr:nr"（文档推荐：不重建 + 裁圆角）
+     *   固定横屏 → supportModes="full,fo" defaultSettings="fo"
+     *   全屏档   → defaultSettings="full"
+     *   平行窗口 → 清掉 fullRule（embedding 规则带上它会被系统判定为不支持平行窗口）
+     */
+    private fun applyModeDefaults() {
+        when (rule.mode) {
+            WindowMode.FULL_SCREEN -> {
+                if (rule.fullRule.isEmpty()) rule.fullRule = "nra:cr:rcr:nr"
+                rule.foSupportModes = "full,fo"
+                rule.foDefaultSettings = "full"
+            }
+
+            WindowMode.FIXED_ORIENTATION -> {
+                rule.foSupportModes = "full,fo"
+                rule.foDefaultSettings = "fo"
+            }
+
+            WindowMode.EMBEDDING -> {
+                rule.fullRule = ""
+                rule.foSupportModes = "full,fo"
+            }
+
+            WindowMode.OFF -> {}
+        }
+    }
+
+    /**
+     * 恢复默认：有内置规则的应用恢复成系统内置值，没有内置规则的恢复成空默认 + 文档样例值。
      * 内置规则表可能还在后台加载，先等它就绪再取值，避免误恢复成空。
      */
     private fun resetToBuiltin() {
@@ -173,14 +235,21 @@ class AppDetailActivity : AppCompatActivity() {
     }
 
     private fun applyBuiltinDefaults() {
-        rule = AppRule(pkg).also { SystemRuleSource.applyDefaults(it) }
+        val isBuiltin = SystemRuleSource.anyOf(pkg)
+        rule = AppRule(pkg)
+        if (isBuiltin) SystemRuleSource.applyDefaults(rule)
+        applyModeDefaults()
         userSaved = false
         dirty = false
         binding.switchEnabled.isChecked = rule.enabled
         binding.modeGroup.check(buttonOf(rule.mode))
         buildForm()
-        validate()
-        Snackbar.make(binding.root, R.string.reset_done, Snackbar.LENGTH_SHORT).show()
+        applyEditState()
+        Snackbar.make(
+            binding.root,
+            if (isBuiltin) R.string.reset_builtin_done else R.string.reset_default_done,
+            Snackbar.LENGTH_SHORT
+        ).show()
     }
 
     private fun showBuiltinCard() {
@@ -191,103 +260,9 @@ class AppDetailActivity : AppCompatActivity() {
         }
         binding.cardBuiltin.visibility = View.VISIBLE
         val names = kinds.joinToString(" · ") { kind ->
-            when (kind) {
-                SystemRuleSource.Kind.EMBEDDING -> getString(R.string.builtin_embedding)
-                SystemRuleSource.Kind.FIXED ->
-                    if (SystemRuleSource.isFixedDisabled(pkg)) getString(R.string.builtin_fixed_disabled)
-                    else getString(R.string.builtin_fixed)
-                SystemRuleSource.Kind.AUTO_UI -> getString(R.string.builtin_autoui)
-            }
+            BuiltinUi.kindName(this, kind, pkg)
         }
         binding.tvBuiltin.text = getString(R.string.detail_builtin_hint, names)
-    }
-
-    // ── 菜单与「抓取页面」回填 ───────────────────────────────
-
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menuInflater.inflate(R.menu.menu_app_detail, menu)
-        return true
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
-        R.id.action_capture -> {
-            captureLauncher.launch(
-                android.content.Intent(this, CaptureActivity::class.java)
-                    .putExtra(CaptureActivity.EXTRA_PACKAGE, pkg)
-                    .putExtra(CaptureActivity.EXTRA_LABEL, binding.tvLabel.text.toString())
-            )
-            true
-        }
-
-        else -> super.onOptionsItemSelected(item)
-    }
-
-    /** 抓到类名后，让用户选一个字段把它填进去 */
-    private fun askTargetField(cls: String) {
-        val targets = listOf<Triple<String, () -> String, (String) -> Unit>>(
-            Triple(
-                "参与分屏的页面（activityRule）",
-                { rule.activityRule },
-                { rule.activityRule = it }
-            ),
-            Triple(
-                "不做切换动画的页面（transitionRules）",
-                { rule.transitionRules },
-                { rule.transitionRules = it }
-            ),
-            Triple(
-                "始终竖着显示的页面（平行窗口 forcePortraitActivity）",
-                { rule.forcePortraitActivity },
-                { rule.forcePortraitActivity = it }
-            ),
-            Triple(
-                "始终竖着显示的页面（固定横屏 forcePortraitActivity）",
-                { rule.foForcePortraitActivity },
-                { rule.foForcePortraitActivity = it }
-            ),
-            Triple(
-                "全屏档下仍竖着显示的页面（fullForcePortraitActivity）",
-                { rule.foFullForcePortraitActivity },
-                { rule.foFullForcePortraitActivity = it }
-            ),
-            Triple(
-                "需要适配的页面（界面适配 activityRule）",
-                { rule.autoUiActivityRule },
-                { rule.autoUiActivityRule = it }
-            ),
-            Triple(
-                "跳过适配的页面（界面适配 skippedActivityRule）",
-                { rule.autoUiSkippedActivityRule },
-                { rule.autoUiSkippedActivityRule = it }
-            )
-        )
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.capture_pick_field)
-            .setItems(targets.map { it.first }.toTypedArray()) { _, which ->
-                val (_, getter, setter) = targets[which]
-                setter(appendCsv(getter(), cls))
-                buildForm()
-                validate()
-                val count = cls.split(',').count { it.isNotBlank() }
-                Snackbar.make(
-                    binding.root,
-                    getString(R.string.capture_filled, count),
-                    Snackbar.LENGTH_SHORT
-                ).show()
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
-    }
-
-    /** 以英文逗号并入并去重 */
-    private fun appendCsv(old: String, add: String): String {
-        val set = linkedSetOf<String>()
-        (old.split(',') + add.split(',')).forEach { item ->
-            val t = item.trim()
-            if (t.isNotEmpty()) set += t
-        }
-        return set.joinToString(",")
     }
 
     // ── 主模式按钮映射 ───────────────────────────────────────
@@ -325,23 +300,28 @@ class AppDetailActivity : AppCompatActivity() {
         box.removeAllViews()
         fieldViews.clear()
 
+        // 系统禁用且未解锁：置灰提示，控件由 applyEditState 统一禁用
+        if (SystemRuleSource.isFixedDisabled(pkg) && !forceEdit) {
+            UiKit.note(box, getString(R.string.locked_hint))
+        }
+
         if (simpleMode) {
             buildSimpleForm(box)
-            return
-        }
+        } else {
+            // 高级模式：按优先级只显示当前模式的专属参数，低优先级分区直接隐藏
+            when (rule.mode) {
+                WindowMode.EMBEDDING -> buildEmbeddingSection(box)
+                WindowMode.FIXED_ORIENTATION -> buildFixedSection(box)
+                WindowMode.FULL_SCREEN -> buildFullScreenSection(box)
 
-        // 高级模式：按优先级只显示当前模式的专属参数，低优先级分区直接隐藏
-        when (rule.mode) {
-            WindowMode.EMBEDDING -> buildEmbeddingSection(box)
-            WindowMode.FIXED_ORIENTATION -> buildFixedSection(box)
-            WindowMode.FULL_SCREEN -> buildFullScreenSection(box)
-
-            WindowMode.OFF -> UiKit.note(box, getString(R.string.note_mode_no_detail))
+                WindowMode.OFF -> UiKit.note(box, getString(R.string.note_mode_no_detail))
+            }
+            // 界面适配不属于三套互斥机制，任何模式下都保留。
+            // 「手动系统开关」分区已取消：选好模式后由系统按内置优先级自动打开对应开关，
+            // 不再让用户手动 swEmbedded/swFixedOrientation/swFullScreen，避免与模式推导冲突。
+            buildAutoUiSection(box)
         }
-        // 界面适配不属于三套互斥机制，任何模式下都保留。
-        // 「手动系统开关」分区已取消：选好模式后由系统按内置优先级自动打开对应开关，
-        // 不再让用户手动 swEmbedded/swFixedOrientation/swFullScreen，避免与模式推导冲突。
-        buildAutoUiSection(box)
+        applyEditState()
     }
 
     /** 简单模式：只给当前模式最常用的几项，配一句话说明，小白照做即可 */
@@ -363,6 +343,16 @@ class AppDetailActivity : AppCompatActivity() {
                     chips, "finishSecondaryWithPrimary", "左栏关闭时右栏一起关",
                     "finishSecondaryWithPrimary", rule.finishSecondaryWithPrimary
                 ) { rule.finishSecondaryWithPrimary = it }
+                UiKit.note(body, getString(R.string.group_pages))
+                txt(
+                    body, "splitPairRule", "左右两栏的配对方式", "splitPairRule", rule.splitPairRule,
+                    "点放大镜抓取页面；默认填成 页面:*，可再改",
+                    Fill.PAIR
+                ) { rule.splitPairRule = it }
+                txt(
+                    body, "placeholder", "右栏默认打开的页面", "placeholder", rule.placeholder,
+                    "格式 主页面:占位页面，可先抓取再改"
+                ) { rule.placeholder = it }
                 UiKit.note(body, getString(R.string.note_embedding))
             }
 
@@ -380,12 +370,13 @@ class AppDetailActivity : AppCompatActivity() {
                 chip(chips, "foRelaunch", "切换时重启应用", "relaunch", rule.foRelaunch) {
                     rule.foRelaunch = it
                 }
-                chip(chips, "foOverrideDisable", "无视系统禁用名单", "disable", rule.foOverrideDisable) {
-                    rule.foOverrideDisable = it
-                }
                 chip(chips, "foIsShowDivider", "显示中间分割线", "isShowDivider", rule.foIsShowDivider) {
                     rule.foIsShowDivider = it
                 }
+                txt(
+                    body, "foRatio", "显示比例（宽高比）", "ratio", rule.foRatio,
+                    "1.x~2.x 的小数，如 1.1 接近大折叠屏比例；0 或留空不限制"
+                ) { rule.foRatio = it }
                 UiKit.note(body, getString(R.string.note_fixed))
             }
 
@@ -457,23 +448,25 @@ class AppDetailActivity : AppCompatActivity() {
         UiKit.note(body, getString(R.string.group_pages))
         txt(
             body, "activityRule", "参与分屏的页面", "activityRule", rule.activityRule,
-            "填 Activity 全类名，多个用英文逗号隔开"
+            "填 Activity 全类名，多个用英文逗号隔开；可点放大镜抓取",
+            Fill.LIST
         ) { rule.activityRule = it }
         txt(
             body, "splitPairRule", "左右两栏的配对方式", "splitPairRule", rule.splitPairRule,
-            "格式 左栏页面:右栏页面，如 MainActivity:*"
+            "抓取后填成 页面:*，可再改右栏",
+            Fill.PAIR
         ) { rule.splitPairRule = it }
         txt(
             body, "placeholder", "右栏默认打开的页面", "placeholder", rule.placeholder,
-            "格式 主页面:占位页面"
+            "格式 主页面:占位页面，可先抓取再改"
         ) { rule.placeholder = it }
         txt(
             body, "transitionRules", "不做切换动画的页面", "transitionRules", rule.transitionRules,
-            "多个用英文逗号隔开"
+            "多个用英文逗号隔开", Fill.LIST
         ) { rule.transitionRules = it }
         txt(
             body, "forcePortraitActivity", "始终竖着显示的页面", "forcePortraitActivity",
-            rule.forcePortraitActivity, "这些页面不参与分屏"
+            rule.forcePortraitActivity, "这些页面不参与分屏", Fill.LIST
         ) { rule.forcePortraitActivity = it }
 
         UiKit.note(body, getString(R.string.group_layout))
@@ -568,6 +561,7 @@ class AppDetailActivity : AppCompatActivity() {
         dropdown(
             body, "fullRule", "整屏显示方式", "fullRule", rule.fullRule,
             listOf(
+                "nra:cr:rcr:nr" to "推荐：不重建+裁圆角（nra:cr:rcr:nr）",
                 "" to "默认：所有页面都整屏（*）",
                 "nra" to "整屏时不重建页面（nra）",
                 "nra:cr:rcr" to "不重建 + 裁剪圆角（nra:cr:rcr）"
@@ -602,9 +596,6 @@ class AppDetailActivity : AppCompatActivity() {
             chips, "foForceKillWhenSwitch", "换档时结束进程", "forceKillWhenSwitch",
             rule.foForceKillWhenSwitch
         ) { rule.foForceKillWhenSwitch = it }
-        chip(chips, "foOverrideDisable", "无视系统禁用名单", "disable", rule.foOverrideDisable) {
-            rule.foOverrideDisable = it
-        }
         chip(chips, "foIsShowDivider", "显示中间分割线", "isShowDivider", rule.foIsShowDivider) {
             rule.foIsShowDivider = it
         }
@@ -670,12 +661,12 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.foCompatChange = it }
         txt(
             body, "foForcePortraitActivity", "始终竖着显示的页面", "forcePortraitActivity",
-            rule.foForcePortraitActivity, "多个用英文逗号隔开"
+            rule.foForcePortraitActivity, "多个用英文逗号隔开", Fill.LIST
         ) { rule.foForcePortraitActivity = it }
         txt(
             body, "foFullForcePortraitActivity", "全屏档下仍竖着显示的页面",
             "fullForcePortraitActivity", rule.foFullForcePortraitActivity,
-            "只在全屏拉伸档生效"
+            "只在全屏拉伸档生效", Fill.LIST
         ) { rule.foFullForcePortraitActivity = it }
 
         UiKit.note(body, getString(R.string.group_advanced))
@@ -698,7 +689,7 @@ class AppDetailActivity : AppCompatActivity() {
         txt(
             body, "foAdjustmentOrientationActivity", "单独调整旋转方向的页面",
             "adjustmentOrientationActivity", rule.foAdjustmentOrientationActivity,
-            "格式 包名/类名:1，多个逗号隔开"
+            "格式 包名/类名:1，可抓取后补 :1", Fill.LIST
         ) { rule.foAdjustmentOrientationActivity = it }
         txt(
             body, "foRatio", "宽高比", "ratio", rule.foRatio,
@@ -735,11 +726,11 @@ class AppDetailActivity : AppCompatActivity() {
 
         txt(
             body, "autoUiActivityRule", "需要适配的页面", "activityRule", rule.autoUiActivityRule,
-            "格式 页面:数值，多个用分号隔开"
+            "格式 页面:数值，多个用分号隔开；可先抓取页面", Fill.LIST
         ) { rule.autoUiActivityRule = it }
         txt(
             body, "autoUiSkippedActivityRule", "跳过适配的页面", "skippedActivityRule",
-            rule.autoUiSkippedActivityRule, "适配后显示异常的页面填这里"
+            rule.autoUiSkippedActivityRule, "适配后显示异常的页面填这里", Fill.LIST
         ) { rule.autoUiSkippedActivityRule = it }
         txt(
             body, "autoUiSkippedAppConfigChange", "跳过的屏幕变化事件", "skippedAppConfigChange",
@@ -751,7 +742,7 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.autoUiVersionCode = it }
     }
 
-    // ── 控件封装（登记 key 以支持冲突高亮） ─────────────────
+    // ── 控件封装 ─────────────────────────────────────────────
 
     private fun chip(
         group: ChipGroup,
@@ -762,8 +753,8 @@ class AppDetailActivity : AppCompatActivity() {
         onChange: (Boolean) -> Unit
     ) {
         fieldViews[key] = UiKit.chip(group, title, en, checked) {
+            dirty = true
             onChange(it)
-            validate()
         }
     }
 
@@ -774,12 +765,161 @@ class AppDetailActivity : AppCompatActivity() {
         en: String?,
         value: String,
         hint: String? = null,
+        fill: Fill? = null,
         onChange: (String) -> Unit
     ) {
-        fieldViews[key] = UiKit.textRow(parent, label, en, value, hint) {
+        var tilRef: TextInputLayout? = null
+        val til = UiKit.textRow(parent, label, en, value, hint,
+            onCapture = if (fill == null) null else {
+                {
+                    val tilNow = tilRef ?: return@textRow
+                    showPagePicker(fill, currentTextOf(tilNow)) { picked ->
+                        tilNow.findViewById<TextInputEditText>(R.id.et).setText(picked)
+                    }
+                }
+            }
+        ) {
+            dirty = true
             onChange(it)
-            validate()
         }
+        tilRef = til
+        fieldViews[key] = til
+    }
+
+    private fun currentTextOf(til: TextInputLayout): String =
+        til.findViewById<TextInputEditText>(R.id.et)?.text?.toString().orEmpty()
+
+    /**
+     * 抓取目标应用的页面（Activity）列表并多选填充。
+     * LIST 填充把选中的类名用英文逗号并列；PAIR 填充写成「页面:*」（配对规则的常用写法）。
+     * 支持按类名/功能名实时筛选；启动页标为「★ 主界面」置顶；每行小字显示页面功能名。
+     */
+    private fun showPagePicker(fill: Fill, current: String, onDone: (String) -> Unit) {
+        val pm = packageManager
+        val acts = runCatching {
+            pm.getPackageInfo(pkg, PackageManager.GET_ACTIVITIES).activities
+        }.getOrNull()
+        if (acts.isNullOrEmpty()) {
+            Snackbar.make(binding.root, R.string.capture_none, Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        val launcher = runCatching {
+            pm.getLaunchIntentForPackage(pkg)?.component?.className
+        }.getOrNull()
+
+        data class Item(val name: String, val label: String, val isMain: Boolean)
+
+        val items = acts.mapNotNull { a ->
+            a.name?.let { name ->
+                Item(
+                    name,
+                    runCatching { a.loadLabel(pm).toString() }.getOrDefault(""),
+                    name == launcher
+                )
+            }
+        }.distinctBy { it.name }
+            .sortedWith(compareByDescending<Item> { it.isMain }.thenBy { it.name })
+
+        val currentItems = current.split(',', ';')
+            .map { it.trim().let { s -> if (fill == Fill.PAIR) s.substringBefore(':') else s } }
+            .filter { it.isNotEmpty() }
+            .toSet()
+        val checkedMap = HashMap<String, Boolean>()
+        items.forEach { if (it.name in currentItems) checkedMap[it.name] = true }
+
+        // 过滤框
+        val search = EditText(this).apply {
+            hint = getString(R.string.picker_filter_hint)
+            setSingleLine()
+        }
+
+        // 列表：第一行类名（主界面加 ★ 标记），第二行小字为页面功能名
+        val gray = ContextCompat.getColor(this, R.color.field_en)
+        val listAdapter = object : BaseAdapter() {
+            var shown: List<Item> = items
+
+            override fun getCount(): Int = shown.size
+            override fun getItem(position: Int): Item = shown[position]
+            override fun getItemId(position: Int): Long = position.toLong()
+
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = (convertView ?: LayoutInflater.from(this@AppDetailActivity)
+                    .inflate(android.R.layout.simple_list_item_checked, parent, false)
+                        ) as CheckedTextView
+                val item = shown[position]
+                val ssb = SpannableStringBuilder(item.name)
+                if (item.isMain) {
+                    ssb.insert(0, "★ ")
+                    val markStart = ssb.length
+                    ssb.append("\n").append(getString(R.string.picker_main_mark))
+                    ssb.setSpan(
+                        ForegroundColorSpan(ContextCompat.getColor(this@AppDetailActivity, R.color.ok_green)),
+                        markStart + 1, ssb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+                if (item.label.isNotEmpty() && item.label != item.name && item.label != pkg) {
+                    val start = ssb.length
+                    ssb.append("\n").append(item.label)
+                    ssb.setSpan(RelativeSizeSpan(0.75f), start + 1, ssb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    ssb.setSpan(ForegroundColorSpan(gray), start + 1, ssb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                v.text = ssb
+                v.isChecked = checkedMap[item.name] == true
+                return v
+            }
+        }
+        val list = ListView(this).apply {
+            adapter = listAdapter
+            dividerHeight = 0
+            setOnItemClickListener { _, _, pos, _ ->
+                val item = listAdapter.shown[pos]
+                checkedMap[item.name] = !(checkedMap[item.name] ?: false)
+                listAdapter.notifyDataSetChanged()
+            }
+        }
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                val q = s?.toString()?.trim() ?: ""
+                listAdapter.shown = if (q.isEmpty()) items else items.filter {
+                    it.name.contains(q, true) || it.label.contains(q, true)
+                }
+                listAdapter.notifyDataSetChanged()
+            }
+        })
+
+        val dp = resources.displayMetrics.density
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((dp * 20).toInt(), (dp * 8).toInt(), (dp * 20).toInt(), 0)
+            addView(search)
+            addView(list)
+            list.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (resources.displayMetrics.heightPixels * 0.45f).toInt()
+            ).apply { topMargin = (dp * 12).toInt() }
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.capture_pages)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val picked = items.filter { checkedMap[it.name] == true }.map { it.name }
+                if (picked.isEmpty()) return@setPositiveButton
+                onDone(
+                    when (fill) {
+                        Fill.PAIR -> picked.joinToString(",") { "$it:*" }
+                        Fill.LIST -> picked.joinToString(",")
+                    }
+                )
+                Snackbar.make(
+                    binding.root, getString(R.string.capture_done, picked.size),
+                    Snackbar.LENGTH_SHORT
+                ).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun dropdown(
@@ -795,94 +935,133 @@ class AppDetailActivity : AppCompatActivity() {
         fieldViews[key] = UiKit.dropdownRow(parent, label, en, options, value, hint) {
             dirty = true
             onChange(it)
-            validate()
-        }
-    }
-
-    // ── 冲突检测与高亮 ───────────────────────────────────────
-
-    private fun validate() {
-        val result = ConflictChecker.check(rule)
-
-        // 清除旧高亮
-        fieldViews.values.forEach { v ->
-            when (v) {
-                is TextInputLayout -> {
-                    v.error = null
-                    v.isErrorEnabled = false
-                }
-
-                is Chip -> {
-                    v.chipStrokeColor = ColorStateList.valueOf(
-                        ContextCompat.getColor(this, R.color.chip_stroke_normal)
-                    )
-                    v.chipStrokeWidth = resources.displayMetrics.density
-                }
-
-                else -> Unit
-            }
-        }
-
-        result.issues.forEach { issue ->
-            val error = issue.level == ConflictChecker.Level.ERROR
-            val fg = ContextCompat.getColor(
-                this, if (error) R.color.conflict_error else R.color.conflict_warn
-            )
-            issue.fields.forEach { key ->
-                when (val v = fieldViews[key]) {
-                    is TextInputLayout -> {
-                        v.isErrorEnabled = true
-                        v.error = issue.message
-                        v.setErrorTextColor(ColorStateList.valueOf(fg))
-                        v.setErrorIconTintList(ColorStateList.valueOf(fg))
-                        v.boxStrokeErrorColor = ColorStateList.valueOf(fg)
-                    }
-
-                    is Chip -> {
-                        v.chipStrokeColor = ColorStateList.valueOf(fg)
-                        v.chipStrokeWidth = resources.displayMetrics.density * 2
-                    }
-
-                    else -> Unit
-                }
-            }
-        }
-
-        if (result.isClean) {
-            binding.cardConflict.visibility = View.GONE
-        } else {
-            binding.cardConflict.visibility = View.VISIBLE
-            val error = result.hasError
-            binding.cardConflict.setCardBackgroundColor(
-                ContextCompat.getColor(
-                    this,
-                    if (error) R.color.conflict_error_bg else R.color.conflict_warn_bg
-                )
-            )
-            val fg = ContextCompat.getColor(
-                this, if (error) R.color.conflict_error else R.color.conflict_warn
-            )
-            binding.tvConflictTitle.setTextColor(fg)
-            binding.tvConflict.setTextColor(fg)
-            binding.tvConflict.text = result.issues.joinToString("\n") { "• ${it.message}" }
-            binding.btnFix.visibility = if (error) View.VISIBLE else View.GONE
         }
     }
 
     private fun save() {
-        // 手动系统开关已不在界面暴露：保存时按所选模式自动推导，交给系统按
-        // 内置优先级（固定横屏 > 平行窗口 > 全屏）命中，避免开关与模式不一致。
-        rule.swEmbedded = rule.mode == WindowMode.EMBEDDING
-        rule.swFixedOrientation = rule.mode == WindowMode.FIXED_ORIENTATION
-        rule.swFullScreen = rule.mode == WindowMode.FULL_SCREEN
-
-        if (ConflictChecker.check(rule).hasError) {
-            Snackbar.make(binding.root, R.string.save_blocked, Snackbar.LENGTH_SHORT).show()
-            return
-        }
         ConfigRepository.saveRule(rule)
         userSaved = true
         dirty = false
         Snackbar.make(binding.root, R.string.saved, Snackbar.LENGTH_SHORT).show()
+    }
+
+    /**
+     * 导出当前应用规则：写入模块外部存储（可用文件管理器/adb 取），
+     * 同时弹窗展示 JSON，长按或点「复制」可复制内容。
+     */
+    private fun exportCurrentRule() {
+        val dir = java.io.File(getExternalFilesDir(null), "export").apply { mkdirs() }
+        val file = java.io.File(dir, "magicwindow_${pkg}_${System.currentTimeMillis()}.json")
+        val json = McpServer.buildRulesJson(listOf(rule)).toString(2)
+        runCatching { file.writeText(json) }.onFailure {
+            Snackbar.make(binding.root, R.string.config_export_failed, Snackbar.LENGTH_SHORT).show()
+            return
+        }
+
+        val dp = resources.displayMetrics.density
+        val pathView = TextView(this).apply {
+            text = getString(R.string.export_rule_done, file.absolutePath)
+            textSize = 11f
+            setTextColor(ContextCompat.getColor(context, R.color.field_en))
+            setOnLongClickListener { copyText(file.absolutePath); true }
+        }
+        val jsonView = TextView(this).apply {
+            text = json
+            typeface = Typeface.MONOSPACE
+            textSize = 12f
+            setOnLongClickListener { copyText(json); true }
+        }
+        val scroll = ScrollView(this).apply { addView(jsonView) }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((dp * 20).toInt(), (dp * 8).toInt(), (dp * 20).toInt(), 0)
+            addView(pathView)
+            addView(scroll)
+            scroll.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (resources.displayMetrics.heightPixels * 0.45f).toInt()
+            ).apply { topMargin = (dp * 12).toInt() }
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.action_export_rule)
+            .setView(container)
+            .setPositiveButton(R.string.action_copy) { _, _ -> copyText(json) }
+            .setNegativeButton(R.string.action_close, null)
+            .show()
+    }
+
+    private fun copyText(text: String) {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("magic-window", text))
+        Snackbar.make(binding.root, R.string.capture_copied, Snackbar.LENGTH_SHORT).show()
+    }
+
+    /**
+     * 导入单应用规则：粘贴 JSON（支持导出格式 rules 数组取同包名/第一条，
+     * 或单个规则对象）。导入后只填充表单，仍需点「保存」才持久生效。
+     */
+    private fun showRuleImportDialog() {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clipboard = cm.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+
+        val input = EditText(this).apply {
+            hint = getString(R.string.import_rule_hint)
+            gravity = android.view.Gravity.TOP
+            minLines = 4
+            maxLines = 12
+            typeface = Typeface.MONOSPACE
+            textSize = 12f
+            // 剪贴板内容看起来是规则 JSON 时预填，省去粘贴
+            if (clipboard.contains("\"packageName\"") || clipboard.contains("\"mode\"")) {
+                setText(clipboard)
+            }
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (resources.displayMetrics.density * 20).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+            addView(input)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.action_import_rule)
+            .setView(container)
+            .setPositiveButton(R.string.action_import_rule) { _, _ ->
+                val imported = parseImportedRule(input.text?.toString().orEmpty())
+                if (imported == null) {
+                    Snackbar.make(binding.root, R.string.import_rule_failed, Snackbar.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                rule = imported
+                userSaved = true
+                dirty = true
+                binding.switchEnabled.isChecked = rule.enabled
+                binding.modeGroup.check(buttonOf(rule.mode))
+                updateModeDesc()
+                buildForm()
+                Snackbar.make(binding.root, R.string.import_rule_done, Snackbar.LENGTH_LONG).show()
+            }
+            .setNegativeButton(R.string.action_close, null)
+            .show()
+    }
+
+    /** 解析导入 JSON → [AppRule]；兼容「导出格式」与「单个规则对象」两种输入 */
+    private fun parseImportedRule(text: String): AppRule? {
+        val obj = runCatching { org.json.JSONObject(text) }.getOrNull() ?: return null
+        val ruleJson: org.json.JSONObject? = when {
+            obj.optJSONArray("rules") != null -> {
+                val arr = obj.getJSONArray("rules")
+                (0 until arr.length()).map { arr.getJSONObject(it) }
+                    .firstOrNull { it.optString("packageName") == pkg }
+                    ?: arr.optJSONObject(0)
+            }
+
+            obj.has("packageName") || obj.has("mode") -> obj
+            else -> null
+        } ?: return null
+        return runCatching {
+            AppRule.fromJson(ruleJson!!.put("packageName", pkg))
+        }.getOrNull()
     }
 }

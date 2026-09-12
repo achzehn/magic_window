@@ -3,7 +3,7 @@ package com.github.lsposed.magicwindow.common.model
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** 规则集与全局配置的 JSON 编解码，app 与 hook 两侧共用，保证格式一致。 */
+/** 规则集的 JSON 编解码，app 与 hook 两侧共用，保证格式一致。 */
 object RuleCodec {
 
     fun encodeRules(rules: Collection<AppRule>): String {
@@ -23,18 +23,5 @@ object RuleCodec {
             }
         }
         return map
-    }
-
-    fun encodeGlobal(config: GlobalConfig): String = config.toJson().toString()
-
-    fun decodeGlobal(text: String?): GlobalConfig {
-        if (text.isNullOrBlank()) return GlobalConfig()
-        return runCatching { GlobalConfig.fromJson(JSONObject(text)) }.getOrElse { GlobalConfig() }
-    }
-
-    /** 美化 JSON（缩进 2 空格） */
-    fun prettyJson(text: String): String {
-        val arr = JSONArray(text)
-        return arr.toString(2)
     }
 }

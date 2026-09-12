@@ -58,10 +58,7 @@ object PluginClassLoaderCatcher {
     private fun hookAllMethods(systemServerClassLoader: ClassLoader, className: String) {
         val clazz = runCatching {
             XposedHelpers.findClass(className, systemServerClassLoader)
-        }.getOrElse {
-            XLog.d("未找到 $className，跳过")
-            return
-        }
+        }.getOrElse { return }
 
         val hook = object : XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
@@ -81,7 +78,6 @@ object PluginClassLoaderCatcher {
         clazz.declaredConstructors.forEach { c ->
             runCatching { catcherHooks += XposedBridge.hookMethod(c, hook); count++ }
         }
-        XLog.d("已挂钩 $className 的 $count 个入口用于捕获插件 ClassLoader")
     }
 
     @Synchronized

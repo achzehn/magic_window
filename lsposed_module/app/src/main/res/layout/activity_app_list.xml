@@ -55,7 +55,6 @@
                     style="@style/Widget.Material3.Chip.Filter"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:checked="true"
                     android:text="@string/filter_all" />
 
                 <com.google.android.material.chip.Chip
@@ -63,7 +62,15 @@
                     style="@style/Widget.Material3.Chip.Filter"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:checked="true"
                     android:text="@string/filter_configured" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipDisabled"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/filter_disabled" />
 
                 <com.google.android.material.chip.Chip
                     android:id="@+id/chipUser"
@@ -78,13 +85,6 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/filter_system" />
-
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/chipBuiltin"
-                    style="@style/Widget.Material3.Chip.Filter"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/filter_builtin" />
             </com.google.android.material.chip.ChipGroup>
         </HorizontalScrollView>
     </com.google.android.material.appbar.AppBarLayout>
@@ -182,18 +182,10 @@
                 android:orientation="horizontal">
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnBatchEditField"
-                    style="?attr/materialButtonOutlinedStyle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/batch_edit_field" />
-
-                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnBatchClear"
                     style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="@dimen/row_gap"
                     android:text="@string/batch_clear" />
 
                 <com.google.android.material.button.MaterialButton

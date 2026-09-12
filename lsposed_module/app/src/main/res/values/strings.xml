@@ -10,43 +10,7 @@
     <string name="section_apps">应用设置</string>
     <string name="action_app_list">选择应用</string>
     <string name="action_app_list_desc">只处理在这里设置过的应用，其它应用完全不受影响</string>
-    <string name="action_experimental">实验性</string>
-    <string name="action_experimental_desc">高级注入与降级开关，普通用户无需改动</string>
-    <string name="title_experimental">实验性</string>
-    <string name="section_advanced">进阶设置（不懂就别改）</string>
-    <string name="opt_verify_gates">开机检查系统开关</string>
-    <string name="opt_verify_gates_desc">开机时看一下系统的平行窗口、大屏适配总开关是否打开，并记到日志里</string>
-    <string name="opt_force_ae">系统关了平行窗口时强行打开</string>
-    <string name="opt_force_ae_desc">如果系统把平行窗口总开关关掉了，就骗系统说它是开着的</string>
-    <string name="opt_force_autoui">系统关了大屏适配时强行打开</string>
-    <string name="opt_force_autoui_desc">如果系统把界面自动适配（autoui）关掉了，就骗系统说它是开着的</string>
-    <string name="opt_flip_switch">替应用打开「设置里的开关」</string>
-    <string name="opt_flip_switch_desc">相当于自动帮你在系统设置里给这个应用打开平行窗口／横屏开关。云控注入已会自动打开，一般无需开此项</string>
-    <string name="opt_query_hook">让系统认为应用在名单里</string>
-    <string name="opt_query_hook_desc">系统查「这个应用支持不支持」时，直接回答支持</string>
-    <string name="opt_enable_query_hook">连「已开启」也一并谎报</string>
-    <string name="opt_enable_query_hook_desc">系统在多处会问「这个应用当前是否已开启」，打开后一律回答已开启，兜底更彻底</string>
-    <string name="opt_rule_table_inject">直接写进系统规则表</string>
-    <string name="opt_rule_table_inject_desc">把固定横屏规则塞进系统内部的规则表，并阻止系统把它清掉；依赖机型内部结构，出问题可关掉</string>
-    <string name="opt_override_disable">忽略系统的禁用名单</string>
-    <string name="opt_override_disable_desc">系统内置名单里有近 200 个应用被标记为禁用，打开后不再理会这个标记</string>
-    <string name="opt_autoui_inject">注入大屏布局规则</string>
-    <string name="opt_autoui_inject_desc">把你的界面适配规则写成一份「云端配置」交给系统读取</string>
-    <string name="section_cloud_inject">规则注入（推荐，核心生效方式）</string>
-    <string name="opt_embedded_inject">注入平行窗口规则</string>
-    <string name="opt_embedded_inject_desc">把平行窗口规则写成「云端配置」交给系统读取，改配置后自动生效，无需重启</string>
-    <string name="opt_fixed_inject">注入固定横屏规则</string>
-    <string name="opt_fixed_inject_desc">把固定横屏规则写成「云端配置」交给系统读取，改配置后自动生效，无需重启</string>
-    <string name="section_fallback">降级备用（默认关闭，云控注入不生效时再开）</string>
-    <string name="section_gate">系统开关（前置条件）</string>
-    <string name="section_misc">其它</string>
-    <string name="opt_cloud_version">配置版本号</string>
-    <string name="opt_cloud_version_desc">必须大于系统自带的 360816，否则系统会继续用它自己的规则</string>
-    <string name="opt_hook_cloud_string">让系统自己写版本号</string>
-    <string name="opt_hook_cloud_string_desc">换一种更温和的方式抬高版本号，兼容性更好但属于实验功能</string>
-    <string name="opt_verbose">输出详细日志</string>
-    <string name="opt_verbose_desc">把每一次判断结果都写进 LSPosed 日志，排查问题时再开</string>
-    <string name="reboot_hint">改完需要重启手机才会生效</string>
+    <string name="reboot_hint">保存后自动生效；个别应用没刷新的话，把它从后台划掉重开，或重启手机</string>
 
     <!-- 作用域建议 -->
     <string name="scope_title">在 LSPosed 里要勾哪些</string>
@@ -56,23 +20,16 @@
     <string name="title_app_list">选择应用</string>
     <string name="search_hint">搜索应用名或包名</string>
     <string name="filter_all">全部</string>
-    <string name="filter_builtin">系统已内置</string>
     <string name="filter_configured">已设置</string>
+    <string name="filter_disabled">被系统禁用</string>
     <string name="filter_user">已安装</string>
     <string name="filter_system">系统应用</string>
     <string name="batch_title">一次设置选中的 %1$d 个应用</string>
     <string name="batch_apply">套用</string>
     <string name="batch_clear">清除设置</string>
-    <string name="batch_edit_field">批量编辑字段</string>
     <string name="batch_select_all">选中当前列表全部</string>
     <string name="batch_unselect">取消选中</string>
     <string name="batch_done">已更新 %1$d 个应用</string>
-    <string name="batch_edit_field_title">批量编辑字段</string>
-    <string name="batch_edit_field_desc">选择要修改的字段和值，将应用到所有选中的应用</string>
-    <string name="batch_edit_field_label">字段名</string>
-    <string name="batch_edit_field_value">字段值</string>
-    <string name="batch_edit_field_hint_field">例如：mode / splitRatio / embeddingActivity</string>
-    <string name="batch_edit_field_hint_value">例如：embedding / 0.5 / *.MainActivity</string>
 
     <!-- 模式 -->
     <string name="mode_off">不处理</string>
@@ -100,23 +57,71 @@
     <string name="section_fixed">固定横屏设置</string>
     <string name="section_autoui">界面自动适配</string>
     <string name="section_autoui_desc">让应用在大屏上放大字体、拉宽布局，可以和上面的模式一起用</string>
-    <string name="section_override">系统开关（手动设置）</string>
-    <string name="section_override_desc">不再根据模式自动推导，需要手动设置三个开关。一般只打开其中一个即可，同时打开多个可能导致冲突。</string>
     <string name="note_embedding">页面要填「Activity 全类名」，可以用 * 代表全部；多个之间用英文逗号 , 隔开。留空表示不设置这一项。</string>
     <string name="note_fixed">「全屏拉伸」会把画面铺满整个屏幕，可能变形；「横屏信箱」保持原比例居中显示，两边留黑边。</string>
-    <string name="note_override">三个开关分别对应系统设置里的平行窗口、固定横屏、全屏拉伸。一般只打开其中一个即可，同时打开多个可能导致冲突。</string>
     <string name="group_pages">哪些页面参与</string>
     <string name="group_layout">分栏与外观</string>
     <string name="group_advanced">进阶参数</string>
-    <string name="conflict_title">设置有冲突</string>
-    <string name="conflict_fix">按优先级自动修正</string>
     <string name="action_save">保存</string>
-    <string name="save">保存</string>
     <string name="action_reset">恢复默认</string>
     <string name="saved">已保存</string>
-    <string name="save_blocked">有严重冲突，请先修正再保存</string>
-    <string name="reset_done">已恢复为系统内置规则</string>
+    <string name="reset_default_done">已恢复默认设置</string>
+    <string name="reset_builtin_done">已恢复为系统内置规则</string>
     <string name="builtin_loading">正在读取系统内置规则…</string>
+
+    <!-- 修改已内置应用提示 -->
+    <string name="builtin_edit_title">这个应用系统已内置规则</string>
+    <string name="builtin_edit_message">系统已内置「%1$s」规则，进入后会先按系统当前值填好。\n\n保存后将以你的设置为准；想还原时在详情页点「恢复默认」即可恢复内置。</string>
+    <string name="builtin_edit_ok">继续修改</string>
+
+    <!-- 页面抓取 -->
+    <string name="capture_pages">抓取页面</string>
+    <string name="capture_none">没有抓到该应用的页面</string>
+    <string name="capture_done">已填入 %1$d 个页面</string>
+    <string name="capture_copied">已复制</string>
+
+    <!-- 系统禁用的应用 -->
+    <string name="force_edit_title">这个应用被系统禁用了</string>
+    <string name="force_edit_desc">系统明确禁用了该应用的固定横屏。默认不可修改；打开开关后可强制改写，可能与系统策略冲突。</string>
+    <string name="force_edit_unlock">强制修改</string>
+    <string name="locked_hint">已锁定：打开上方「强制修改」开关才能编辑</string>
+
+    <!-- MCP 调试服务器 -->
+    <string name="mcp_title">AI 调试服务（MCP）</string>
+    <string name="mcp_desc">在局域网开放一个 MCP 服务器，电脑上的 AI 模型可以读写本模块的规则、抓取应用页面，辅助调试横屏适配。</string>
+    <string name="mcp_running">已开启</string>
+    <string name="mcp_stopped">未开启</string>
+    <string name="mcp_start_failed">端口被占用，开启失败</string>
+    <string name="mcp_warn">应用退到后台后，服务可能被系统暂停而无法连接，回到前台即可恢复。</string>
+    <string name="mcp_label_loopback">本机地址</string>
+    <string name="mcp_label_lan">局域网地址</string>
+    <string name="mcp_label_port">端口</string>
+    <string name="mcp_label_token">令牌</string>
+    <string name="mcp_token_none">未设置（不校验令牌）</string>
+    <string name="mcp_token_title">设置令牌</string>
+    <string name="mcp_token_hint">留空表示不校验令牌</string>
+    <string name="mcp_port_title">设置端口</string>
+    <string name="mcp_port_hint">范围 1024–65535</string>
+    <string name="mcp_port_invalid">端口需为 1024–65535 之间的数字</string>
+    <string name="mcp_action_random">随机生成</string>
+    <string name="mcp_action_save">保存</string>
+    <string name="mcp_btn_client_json">客户端配置 JSON</string>
+    <string name="mcp_json_title">MCP 客户端接入配置</string>
+    <string name="mcp_json_hint">两种方式二选一粘贴：magic-window 用于 Trae / Cursor / Cline 等；magic-window-claude-desktop 用于 Claude Desktop。</string>
+    <string name="action_copy">复制</string>
+    <string name="action_close">关闭</string>
+
+    <!-- 页面抓取对话框 -->
+    <string name="picker_filter_hint">筛选页面（支持类名与功能名）</string>
+    <string name="picker_main_mark">★ 主界面（启动页）</string>
+
+    <!-- 导出/导入当前应用规则 -->
+    <string name="action_export_rule">导出</string>
+    <string name="export_rule_done">已导出到 %1$s</string>
+    <string name="action_import_rule">导入</string>
+    <string name="import_rule_hint">粘贴规则 JSON（支持导出格式，或单个规则对象）</string>
+    <string name="import_rule_done">已导入，点「保存」后生效</string>
+    <string name="import_rule_failed">JSON 解析失败：不是有效的规则格式</string>
 
     <!-- 系统内置规则 -->
     <string name="builtin_prefix">系统已内置</string>
@@ -124,20 +129,6 @@
     <string name="builtin_fixed">固定横屏</string>
     <string name="builtin_fixed_disabled">固定横屏（被系统禁用）</string>
     <string name="builtin_autoui">界面适配</string>
-
-    <!-- 页面抓取 -->
-    <string name="action_capture">抓取页面类名</string>
-    <string name="title_capture">抓取页面</string>
-    <string name="capture_switch">开始记录打开过的页面</string>
-    <string name="capture_switch_desc">打开后回到桌面操作目标应用，把要设置的页面都点一遍，再回到这里勾选</string>
-    <string name="capture_need_reboot">刚打开记录开关时可能需要等几秒才开始生效</string>
-    <string name="capture_empty">还没抓到任何页面。请先打开上面的记录开关，再去操作目标应用。</string>
-    <string name="capture_count">共抓到 %1$d 个页面</string>
-    <string name="capture_clear">清空记录</string>
-    <string name="capture_fill">填入所选字段</string>
-    <string name="capture_none_selected">请先勾选要填入的页面</string>
-    <string name="capture_pick_field">填到哪个设置项？</string>
-    <string name="capture_filled">已填入 %1$d 个页面</string>
 
     <!-- 桌面图标 -->
     <string name="action_hide_icon">隐藏桌面图标</string>
@@ -148,13 +139,6 @@
     <string name="hide_icon_done">已隐藏桌面图标</string>
     <string name="show_icon_done">已恢复桌面图标</string>
 
-    <!-- 日志功能 -->
-    <string name="menu_log_group">日志</string>
-    <string name="action_preview_log">预览日志</string>
-    <string name="action_export_log">导出日志</string>
-    <string name="log_export_success">日志已导出</string>
-    <string name="log_export_failed">日志导出失败</string>
-
     <!-- 配置导入导出 -->
     <string name="menu_config_group">配置</string>
     <string name="action_export_config">导出配置</string>
@@ -163,27 +147,6 @@
     <string name="config_export_failed">配置导出失败</string>
     <string name="config_import_success">配置已导入</string>
     <string name="config_import_failed">配置导入失败</string>
-    <string name="config_import_desc">支持导入本模块导出的 JSON 配置，或 Magisk 完美横屏模块的 XML 规则包</string>
-
-    <!-- 全规则文本编辑器 -->
-    <string name="rule_editor_title">全规则编辑器</string>
-    <string name="rule_editor_hint">这里显示所有规则的 JSON。可以直接粘贴/编辑，点「格式化」整理格式，点「校验」检查是否正确，最后点「保存」生效。</string>
-    <string name="rule_editor_format">格式化</string>
-    <string name="rule_editor_validate">校验</string>
-    <string name="rule_editor_loaded">已加载当前规则</string>
-    <string name="rule_editor_empty">内容为空</string>
-    <string name="rule_editor_formatted">已格式化</string>
-    <string name="rule_editor_valid">JSON 格式正确</string>
-    <string name="rule_editor_valid_no_conflict">格式正确且无冲突</string>
-    <string name="rule_editor_saved">已保存</string>
-    <string name="format_error">格式化失败</string>
-    <string name="json_error">JSON 错误</string>
-    <string name="validate_error">校验失败</string>
-    <string name="save_error">保存失败</string>
-    <string name="conflicts_found">发现冲突</string>
-    <string name="save_success">保存成功</string>
-    <string name="save_failed">保存失败</string>
-    <string name="error">错误</string>
 
     <!-- Root 权限 -->
     <string name="root_required_title">需要 Root 权限</string>

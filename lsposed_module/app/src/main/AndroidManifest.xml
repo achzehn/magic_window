@@ -5,11 +5,9 @@
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
-    
-    <!-- 日志导出需要读取日志 -->
-    <uses-permission android:name="android.permission.READ_LOGS" />
-    
-    <!-- 文件读写权限（Android 10+ 使用作用域存储，不需要额外权限） -->
+
+    <!-- MCP 调试服务器：局域网 HTTP 访问 -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:name=".MagicWindowApp"
@@ -68,29 +66,6 @@
             android:name=".ui.AppDetailActivity"
             android:exported="false"
             android:parentActivityName=".ui.AppListActivity" />
-
-        <activity
-            android:name=".ui.CaptureActivity"
-            android:exported="false"
-            android:parentActivityName=".ui.AppDetailActivity" />
-
-        <activity
-            android:name=".ui.RuleEditorActivity"
-            android:exported="false"
-            android:parentActivityName=".ui.MainActivity" />
-
-        <activity
-            android:name=".ui.ExperimentalActivity"
-            android:exported="false"
-            android:parentActivityName=".ui.MainActivity" />
-
-        <!-- system_server 侧抓到的页面记录，经此回传到模块自己的存储 -->
-        <provider
-            android:name=".data.CaptureProvider"
-            android:authorities="com.github.lsposed.magicwindow.capture"
-            android:exported="true"
-            android:permission="android.permission.WRITE_SECURE_SETTINGS"
-            tools:ignore="ExportedContentProvider" />
 
     </application>
 
