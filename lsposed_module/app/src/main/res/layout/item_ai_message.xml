@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="16dp"
+    android:paddingVertical="4dp">
+
+    <!-- 用户消息：右对齐 -->
+    <LinearLayout
+        android:id="@+id/layoutUser"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="end"
+        android:visibility="gone">
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxWidth="280dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeWidth="0dp"
+            style="@style/Widget.Material3.CardView.Filled">
+
+            <TextView
+                android:id="@+id/tvUserMessage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="10dp"
+                android:textSize="15sp"
+                android:textColor="?attr/colorOnSecondaryContainer" />
+        </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
+
+    <!-- AI 消息：左对齐 -->
+    <LinearLayout
+        android:id="@+id/layoutAi"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="start"
+        android:visibility="gone">
+
+        <!-- AI 头像 -->
+        <ImageView
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_marginEnd="8dp"
+            android:layout_marginTop="2dp"
+            android:src="@android:drawable/ic_menu_info_details"
+            android:background="?attr/colorPrimaryContainer"
+            android:padding="4dp"
+            android:contentDescription="@string/ai_name" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvAiName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/ai_name"
+                android:textSize="12sp"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:layout_marginBottom="2dp" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxWidth="320dp"
+                app:cardCornerRadius="16dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp"
+                style="@style/Widget.Material3.CardView.Outlined">
+
+                <TextView
+                    android:id="@+id/tvAiMessage"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="16dp"
+                    android:paddingVertical="10dp"
+                    android:textSize="15sp"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textIsSelectable="true"
+                    android:lineSpacingExtra="3dp" />
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 工具调用状态 -->
+            <TextView
+                android:id="@+id/tvToolCall"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="3dp"
+                android:textSize="11sp"
+                android:textColor="?attr/colorPrimary"
+                android:background="?attr/colorSurfaceVariant"
+                android:visibility="gone" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 加载中指示器 -->
+    <LinearLayout
+        android:id="@+id/layoutLoading"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="start"
+        android:paddingStart="36dp"
+        android:visibility="gone">
+
+        <com.google.android.material.progressindicator.CircularProgressIndicator
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:indeterminate="true"
+            app:indicatorSize="20dp"
+            app:trackThickness="2dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/ai_thinking"
+            android:textSize="13sp"
+            android:textColor="?android:attr/textColorSecondary" />
+    </LinearLayout>
+
+</LinearLayout>

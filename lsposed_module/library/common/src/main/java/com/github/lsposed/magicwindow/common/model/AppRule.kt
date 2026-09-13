@@ -28,7 +28,7 @@ data class AppRule(
     var activityRule: String = "",
     var splitPairRule: String = "",
     var placeholder: String = "",
-    var fullRule: String = "",
+    var fullRule: String = "nra:cr:rcr:nr",
     var scaleMode: String = "",
     var middleRule: String = "",
     var transitionRules: String = "",
@@ -70,7 +70,7 @@ data class AppRule(
     /** 实测恒为 "full,fo" */
     var foSupportModes: String = "full,fo",
     /** full 或 fo */
-    var foDefaultSettings: String = "fo",
+    var foDefaultSettings: String = "full",
     var foRelaunch: Boolean = false,
     var foSupportFullSize: Boolean = true,
     var foSupportCameraPreview: Boolean = false,
@@ -120,7 +120,11 @@ data class AppRule(
     /** 16:9 比例开关 */
     var ratio169Enable: Boolean = false,
     /** 全屏比例开关 */
-    var ratioFullScreenEnable: Boolean = false
+    var ratioFullScreenEnable: Boolean = false,
+
+    // ── UI 状态 ──
+    /** 系统禁用应用的强制修改开关（持久化到规则，随配置一起导入导出） */
+    var forceEdit: Boolean = false
 ) {
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -206,6 +210,7 @@ data class AppRule(
         put("ratio43Enable", ratio43Enable)
         put("ratio169Enable", ratio169Enable)
         put("ratioFullScreenEnable", ratioFullScreenEnable)
+        put("forceEdit", forceEdit)
     }
 
     companion object {
@@ -317,6 +322,7 @@ data class AppRule(
                 ratio43Enable = o.optBoolean("ratio43Enable", d.ratio43Enable)
                 ratio169Enable = o.optBoolean("ratio169Enable", d.ratio169Enable)
                 ratioFullScreenEnable = o.optBoolean("ratioFullScreenEnable", d.ratioFullScreenEnable)
+                forceEdit = o.optBoolean("forceEdit", d.forceEdit)
             }
         }
     }

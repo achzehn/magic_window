@@ -16,6 +16,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
+import android.widget.CheckBox
 import android.widget.CheckedTextView
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -24,11 +25,17 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.github.lsposed.magicwindow.R
 import com.github.lsposed.magicwindow.common.model.AppRule
 import com.github.lsposed.magicwindow.common.model.WindowMode
 import com.github.lsposed.magicwindow.data.ConfigRepository
 import com.github.lsposed.magicwindow.data.SystemRuleSource
+import com.github.lsposed.magicwindow.ai.ModelManager
+import com.github.lsposed.magicwindow.ai.AiClient
+import com.github.lsposed.magicwindow.ai.AiToolExecutor
+import com.github.lsposed.magicwindow.data.ActivityLabelCache
 import com.github.lsposed.magicwindow.databinding.ActivityAppDetailBinding
 import com.github.lsposed.magicwindow.mcp.McpServer
 import com.google.android.material.chip.Chip
@@ -69,14 +76,14 @@ class AppDetailActivity : AppCompatActivity() {
     /** 简单模式只显示当前模式的常用项；高级模式显示完整参数表。记忆在全局配置里 */
     private var simpleMode = true
 
-    /** 系统明确禁用的应用默认锁定表单；用户打开「强制修改」后才可编辑 */
-    private var forceEdit = false
+    /** 暂存模式：只在保存时才写入 rule.mode，避免未保存返回时模式已变 */
+    private var pendingMode: WindowMode = WindowMode.EMBEDDING
 
     /** 字段 key → 控件，用于互斥选项（如显示比例三选一）联动 */
     private val fieldViews = linkedMapOf<String, View>()
 
     /** 页面类名字段的填充方式：LIST 逗号并列；PAIR 写成「页面:*」配对 */
-    private enum class Fill { LIST, PAIR }
+    private enum class Fill { LIST, PAIR, PLACEHOLDER }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -96,6 +103,7 @@ class AppDetailActivity : AppCompatActivity() {
         } else {
             AppRule(pkg).also { SystemRuleSource.applyDefaults(it) }
         }
+        pendingMode = rule.mode
 
         setSupportActionBar(binding.toolbar)
         binding.toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
@@ -116,8 +124,9 @@ class AppDetailActivity : AppCompatActivity() {
         // 系统明确禁用的应用：默认锁定，开关强制修改后才可编辑
         binding.cardForceEdit.visibility =
             if (SystemRuleSource.isFixedDisabled(pkg)) View.VISIBLE else View.GONE
+        binding.swForceEdit.isChecked = rule.forceEdit
         binding.swForceEdit.setOnCheckedChangeListener { _, v ->
-            forceEdit = v
+            rule.forceEdit = v
             applyEditState()
         }
 
@@ -127,11 +136,12 @@ class AppDetailActivity : AppCompatActivity() {
             rule.enabled = v
         }
 
-        binding.modeGroup.check(buttonOf(rule.mode))
+        binding.modeGroup.check(buttonOf(pendingMode))
         binding.modeGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (!isChecked) return@addOnButtonCheckedListener
             dirty = true
-            rule.mode = modeOf(checkedId)
+            pendingMode = modeOf(checkedId)
+            UiKit.vibrate(this)
             applyModeDefaults()
             updateModeDesc()
             buildForm()
@@ -159,7 +169,8 @@ class AppDetailActivity : AppCompatActivity() {
         if (isFinishing) return
         if (!userSaved && !dirty) {
             SystemRuleSource.applyDefaults(rule)
-            binding.modeGroup.check(buttonOf(rule.mode))
+            pendingMode = rule.mode
+            binding.modeGroup.check(buttonOf(pendingMode))
             buildForm()
         }
         showBuiltinCard()
@@ -177,7 +188,7 @@ class AppDetailActivity : AppCompatActivity() {
      * 「强制修改」打开后才解锁；简单/高级切换与恢复默认始终可用。
      */
     private fun applyEditState() {
-        val locked = SystemRuleSource.isFixedDisabled(pkg) && !forceEdit
+        val locked = SystemRuleSource.isFixedDisabled(pkg) && !rule.forceEdit
         fun deep(root: View, enabled: Boolean) {
             root.isEnabled = enabled
             (root as? ViewGroup)?.let { g ->
@@ -200,21 +211,30 @@ class AppDetailActivity : AppCompatActivity() {
      *   平行窗口 → 清掉 fullRule（embedding 规则带上它会被系统判定为不支持平行窗口）
      */
     private fun applyModeDefaults() {
-        when (rule.mode) {
+        when (pendingMode) {
             WindowMode.FULL_SCREEN -> {
-                if (rule.fullRule.isEmpty()) rule.fullRule = "nra:cr:rcr:nr"
+                rule.fullRule = "nra:cr:rcr:nr"
                 rule.foSupportModes = "full,fo"
                 rule.foDefaultSettings = "full"
             }
 
             WindowMode.FIXED_ORIENTATION -> {
                 rule.foSupportModes = "full,fo"
-                rule.foDefaultSettings = "fo"
+                rule.foDefaultSettings = "full"
             }
 
             WindowMode.EMBEDDING -> {
                 rule.fullRule = ""
                 rule.foSupportModes = "full,fo"
+                // 自动填充 launcher activity 作为默认参与分屏的页面
+                if (rule.activityRule.isEmpty()) {
+                    val launcher = packageManager.getLaunchIntentForPackage(pkg)
+                        ?.component?.className
+                    if (launcher != null) {
+                        rule.activityRule = launcher
+                        rule.splitPairRule = "$launcher:*"
+                    }
+                }
             }
 
             WindowMode.OFF -> {}
@@ -237,14 +257,23 @@ class AppDetailActivity : AppCompatActivity() {
     private fun applyBuiltinDefaults() {
         val isBuiltin = SystemRuleSource.anyOf(pkg)
         rule = AppRule(pkg)
-        if (isBuiltin) SystemRuleSource.applyDefaults(rule)
+        if (isBuiltin) {
+            SystemRuleSource.applyDefaults(rule)
+            // 恢复默认时重置禁用标记，确保规则组合有效
+            if (SystemRuleSource.isFixedDisabled(pkg)) {
+                rule.foDisable = false
+            }
+        }
+        pendingMode = rule.mode
         applyModeDefaults()
         userSaved = false
         dirty = false
         binding.switchEnabled.isChecked = rule.enabled
-        binding.modeGroup.check(buttonOf(rule.mode))
+        binding.swForceEdit.isChecked = rule.forceEdit
+        binding.modeGroup.check(buttonOf(pendingMode))
         buildForm()
         applyEditState()
+        UiKit.vibrate(this)
         Snackbar.make(
             binding.root,
             if (isBuiltin) R.string.reset_builtin_done else R.string.reset_default_done,
@@ -284,7 +313,7 @@ class AppDetailActivity : AppCompatActivity() {
     /** 模式按钮下的人话说明 */
     private fun updateModeDesc() {
         binding.tvModeDesc.text = getString(
-            when (rule.mode) {
+            when (pendingMode) {
                 WindowMode.OFF -> R.string.mode_off_desc
                 WindowMode.FULL_SCREEN -> R.string.mode_full_desc
                 WindowMode.EMBEDDING -> R.string.mode_embedding_desc
@@ -301,7 +330,7 @@ class AppDetailActivity : AppCompatActivity() {
         fieldViews.clear()
 
         // 系统禁用且未解锁：置灰提示，控件由 applyEditState 统一禁用
-        if (SystemRuleSource.isFixedDisabled(pkg) && !forceEdit) {
+        if (SystemRuleSource.isFixedDisabled(pkg) && !rule.forceEdit) {
             UiKit.note(box, getString(R.string.locked_hint))
         }
 
@@ -309,7 +338,7 @@ class AppDetailActivity : AppCompatActivity() {
             buildSimpleForm(box)
         } else {
             // 高级模式：按优先级只显示当前模式的专属参数，低优先级分区直接隐藏
-            when (rule.mode) {
+            when (pendingMode) {
                 WindowMode.EMBEDDING -> buildEmbeddingSection(box)
                 WindowMode.FIXED_ORIENTATION -> buildFixedSection(box)
                 WindowMode.FULL_SCREEN -> buildFullScreenSection(box)
@@ -326,7 +355,7 @@ class AppDetailActivity : AppCompatActivity() {
 
     /** 简单模式：只给当前模式最常用的几项，配一句话说明，小白照做即可 */
     private fun buildSimpleForm(box: LinearLayout) {
-        when (rule.mode) {
+        when (pendingMode) {
             WindowMode.EMBEDDING -> {
                 val body = UiKit.section(box, getString(R.string.simple_common))
                 val chips = UiKit.chipBox(body)
@@ -351,7 +380,8 @@ class AppDetailActivity : AppCompatActivity() {
                 ) { rule.splitPairRule = it }
                 txt(
                     body, "placeholder", "右栏默认打开的页面", "placeholder", rule.placeholder,
-                    "格式 主页面:占位页面，可先抓取再改"
+                    "主页面在左栏打开时，右栏默认显示的页面；点放大镜选择两个页面",
+                    Fill.PLACEHOLDER
                 ) { rule.placeholder = it }
                 UiKit.note(body, getString(R.string.note_embedding))
             }
@@ -458,7 +488,7 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.splitPairRule = it }
         txt(
             body, "placeholder", "右栏默认打开的页面", "placeholder", rule.placeholder,
-            "格式 主页面:占位页面，可先抓取再改"
+            "主页面在左栏打开时，右栏默认显示的页面；点放大镜选择两个页面", Fill.PLACEHOLDER
         ) { rule.placeholder = it }
         txt(
             body, "transitionRules", "不做切换动画的页面", "transitionRules", rule.transitionRules,
@@ -470,10 +500,14 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.forcePortraitActivity = it }
 
         UiKit.note(body, getString(R.string.group_layout))
-        txt(
-            body, "splitRatio", "左栏宽度占比", "splitRatio", rule.splitRatio,
-            "0~1 的小数，如 0.35"
-        ) { rule.splitRatio = it }
+        // splitRatio 使用滑块，支持无极拖动和节点震动反馈
+        UiKit.sliderRow(
+            body, "左栏宽度占比", "splitRatio",
+            rule.splitRatio.toFloatOrNull() ?: 0.35f,
+            valueRange = 0.1f..0.9f,
+            steps = listOf(0.1f, 0.15f, 0.2f, 0.25f, 0.3f, 0.35f, 0.4f, 0.45f, 0.5f, 0.55f, 0.6f, 0.65f, 0.7f, 0.75f, 0.8f, 0.85f, 0.9f),
+            hint = "0~1 的小数，如 0.35"
+        ) { rule.splitRatio = it.toString() }
         txt(
             body, "splitMinWidth", "分栏最小宽度", "splitMinWidth", rule.splitMinWidth,
             "低于该宽度不分栏，单位 dp"
@@ -498,7 +532,7 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.minSupportVersion = it }
         txt(
             body, "flags", "额外标记", "flags", rule.flags,
-            "如 forceResumeOnFocus:com.x.MainActivity"
+            "如 forceResumeOnFocus:com.x.MainActivity", Fill.LIST
         ) { rule.flags = it }
         txt(
             body, "procCompat", "进程级兼容处理", "procCompat", rule.procCompat,
@@ -506,7 +540,7 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.procCompat = it }
         txt(
             body, "autoUiRule", "顺带启用的界面适配规则", "autoUiRule", rule.autoUiRule,
-            "格式 页面:数值，多个用分号隔开"
+            "格式 页面:数值，多个用分号隔开", Fill.LIST
         ) { rule.autoUiRule = it }
         txt(
             body, "defaultSettings", "默认档位", "defaultSettings", rule.defaultSettings,
@@ -527,7 +561,7 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.killApps = it }
         txt(
             body, "forcePortraitWhenSwitch", "换档时强制竖屏的页面", "forcePortraitWhenSwitch",
-            rule.forcePortraitWhenSwitch, "多个用英文逗号隔开"
+            rule.forcePortraitWhenSwitch, "多个用英文逗号隔开", Fill.LIST
         ) { rule.forcePortraitWhenSwitch = it }
         txt(
             body, "sizecompatRatio", "兼容模式比例", "sizecompatRatio", rule.sizecompatRatio,
@@ -535,7 +569,7 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.sizecompatRatio = it }
         txt(
             body, "sizecompatRule", "兼容模式页面规则", "sizecompatRule", rule.sizecompatRule,
-            "格式 页面:数值，多个逗号隔开"
+            "格式 页面:数值，多个逗号隔开", Fill.LIST
         ) { rule.sizecompatRule = it }
         txt(
             body, "transparentBar", "透明导航栏", "transparentBar", rule.transparentBar,
@@ -697,7 +731,7 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.foRatio = it }
         txt(
             body, "foRelaunchRule", "重启规则", "relaunchRule", rule.foRelaunchRule,
-            "格式 DefaultScenario:true:页面名"
+            "格式 DefaultScenario:true:页面名", Fill.LIST
         ) { rule.foRelaunchRule = it }
         dropdown(
             body, "foTransparentBar", "透明导航栏", "transparentBar",
@@ -754,6 +788,7 @@ class AppDetailActivity : AppCompatActivity() {
     ) {
         fieldViews[key] = UiKit.chip(group, title, en, checked) {
             dirty = true
+            UiKit.vibrate(this)
             onChange(it)
         }
     }
@@ -773,7 +808,7 @@ class AppDetailActivity : AppCompatActivity() {
             onCapture = if (fill == null) null else {
                 {
                     val tilNow = tilRef ?: return@textRow
-                    showPagePicker(fill, currentTextOf(tilNow)) { picked ->
+                    showPagePicker(fill, currentTextOf(tilNow), key) { picked ->
                         tilNow.findViewById<TextInputEditText>(R.id.et).setText(picked)
                     }
                 }
@@ -794,7 +829,16 @@ class AppDetailActivity : AppCompatActivity() {
      * LIST 填充把选中的类名用英文逗号并列；PAIR 填充写成「页面:*」（配对规则的常用写法）。
      * 支持按类名/功能名实时筛选；启动页标为「★ 主界面」置顶；每行小字显示页面功能名。
      */
-    private fun showPagePicker(fill: Fill, current: String, onDone: (String) -> Unit) {
+    /**
+     * 显示页面抓取对话框。
+     * @param fieldContext 入口字段名，用于 AI 上下文感知推荐（如 "activityRule", "forcePortraitActivity" 等）
+     */
+    private fun showPagePicker(fill: Fill, current: String, fieldContext: String = "", onDone: (String) -> Unit) {
+        // placeholder 是「主页面:占位页面」配对，走专用的两段单选选择器
+        if (fill == Fill.PLACEHOLDER) {
+            showPlaceholderPairPicker(current, onDone)
+            return
+        }
         val pm = packageManager
         val acts = runCatching {
             pm.getPackageInfo(pkg, PackageManager.GET_ACTIVITIES).activities
@@ -807,15 +851,16 @@ class AppDetailActivity : AppCompatActivity() {
             pm.getLaunchIntentForPackage(pkg)?.component?.className
         }.getOrNull()
 
-        data class Item(val name: String, val label: String, val isMain: Boolean)
+        data class Item(val name: String, val label: String, val isMain: Boolean, val zhDesc: String = "")
+
+        // 加载本地缓存的中文描述
+        val cachedLabels = ActivityLabelCache.getAllForPackage(this@AppDetailActivity, pkg)
 
         val items = acts.mapNotNull { a ->
             a.name?.let { name ->
-                Item(
-                    name,
-                    runCatching { a.loadLabel(pm).toString() }.getOrDefault(""),
-                    name == launcher
-                )
+                val label = runCatching { a.loadLabel(pm).toString() }.getOrDefault("")
+                val zhDesc = cachedLabels[name] ?: ""
+                Item(name, label, name == launcher, zhDesc)
             }
         }.distinctBy { it.name }
             .sortedWith(compareByDescending<Item> { it.isMain }.thenBy { it.name })
@@ -827,14 +872,38 @@ class AppDetailActivity : AppCompatActivity() {
         val checkedMap = HashMap<String, Boolean>()
         items.forEach { if (it.name in currentItems) checkedMap[it.name] = true }
 
+        // AI 建议结果缓存（key=Activity名，value=AI建议标签）
+        val aiSuggestions = HashMap<String, String>()
+        val aiSuggestedNames = HashSet<String>()
+        // AI 中文描述缓存（用于更新列表显示）
+        val zhDescCache = HashMap<String, String>()
+
+        // 如果 AI 已配置（存在已启用模型），后台获取 AI 建议（延迟到 listAdapter 定义后启动）
+        val aiConfigured = ModelManager.getCurrent(this@AppDetailActivity) != null
+
+        // 根据入口字段生成上下文提示
+        val contextHint = when (fieldContext) {
+            "activityRule" -> "参与分屏的页面"
+            "splitPairRule" -> "左右栏配对的页面"
+            "placeholder" -> "右栏默认显示的页面"
+            "relaunchRule", "relunchRule" -> "需要重启的页面"
+            "forcePortraitActivity" -> "始终竖着显示的页面"
+            "sizeCompatRule" -> "需要尺寸兼容的页面"
+            "autoUiActivityRule" -> "需要界面自动适配的页面"
+            "flags" -> "有特殊标记需求的页面"
+            else -> "适合该功能的页面"
+        }
+
         // 过滤框
         val search = EditText(this).apply {
             hint = getString(R.string.picker_filter_hint)
             setSingleLine()
         }
 
-        // 列表：第一行类名（主界面加 ★ 标记），第二行小字为页面功能名
+        // 列表：使用自定义布局，优化长类名和中文说明显示
         val gray = ContextCompat.getColor(this, R.color.field_en)
+        val greenColor = ContextCompat.getColor(this, R.color.ok_green)
+        val errorColor = ContextCompat.getColor(this, R.color.conflict_error)
         val listAdapter = object : BaseAdapter() {
             var shown: List<Item> = items
 
@@ -843,28 +912,48 @@ class AppDetailActivity : AppCompatActivity() {
             override fun getItemId(position: Int): Long = position.toLong()
 
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-                val v = (convertView ?: LayoutInflater.from(this@AppDetailActivity)
-                    .inflate(android.R.layout.simple_list_item_checked, parent, false)
-                        ) as CheckedTextView
+                val v = convertView ?: LayoutInflater.from(this@AppDetailActivity)
+                    .inflate(R.layout.item_page_picker, parent, false)
+
                 val item = shown[position]
-                val ssb = SpannableStringBuilder(item.name)
-                if (item.isMain) {
-                    ssb.insert(0, "★ ")
-                    val markStart = ssb.length
-                    ssb.append("\n").append(getString(R.string.picker_main_mark))
-                    ssb.setSpan(
-                        ForegroundColorSpan(ContextCompat.getColor(this@AppDetailActivity, R.color.ok_green)),
-                        markStart + 1, ssb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
+                val tvClassName = v.findViewById<TextView>(R.id.tvClassName)
+                val tvDesc = v.findViewById<TextView>(R.id.tvDesc)
+                val tvAiTag = v.findViewById<TextView>(R.id.tvAiTag)
+                val cb = v.findViewById<CheckBox>(R.id.cb)
+
+                // 类名：主界面加 ★ 标记
+                val displayName = if (item.isMain) "★ ${item.name}" else item.name
+                tvClassName.text = displayName
+
+                // 中文说明：优先用缓存，其次用 AI 实时结果
+                val zhDesc = item.zhDesc.ifEmpty { zhDescCache[item.name] ?: "" }
+                if (zhDesc.isNotEmpty()) {
+                    tvDesc.visibility = View.VISIBLE
+                    tvDesc.text = zhDesc
+                    tvDesc.setTextColor(gray)
+                } else {
+                    tvDesc.visibility = View.GONE
                 }
-                if (item.label.isNotEmpty() && item.label != item.name && item.label != pkg) {
-                    val start = ssb.length
-                    ssb.append("\n").append(item.label)
-                    ssb.setSpan(RelativeSizeSpan(0.75f), start + 1, ssb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    ssb.setSpan(ForegroundColorSpan(gray), start + 1, ssb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+
+                // AI 建议标签
+                val aiTag = aiSuggestions[item.name]
+                if (aiTag != null) {
+                    tvAiTag.visibility = View.VISIBLE
+                    tvAiTag.text = "🤖 $aiTag"
+                    val tagColor = when {
+                        aiTag.contains("适合") || aiTag.contains("主") || aiTag.contains("详情") || aiTag.contains("播放") -> greenColor
+                        aiTag.contains("不参与") -> errorColor
+                        else -> gray
+                    }
+                    tvAiTag.setTextColor(tagColor)
+                } else {
+                    tvAiTag.visibility = View.GONE
                 }
-                v.text = ssb
-                v.isChecked = checkedMap[item.name] == true
+
+                cb.isChecked = checkedMap[item.name] == true
+                cb.setOnClickListener {
+                    checkedMap[item.name] = cb.isChecked
+                }
                 return v
             }
         }
@@ -893,8 +982,156 @@ class AppDetailActivity : AppCompatActivity() {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding((dp * 20).toInt(), (dp * 8).toInt(), (dp * 20).toInt(), 0)
+
+            // AI 勾选推荐按钮
+            if (ModelManager.getCurrent(this@AppDetailActivity) != null) {
+                val aiRecommendBtn = com.google.android.material.button.MaterialButton(
+                    this@AppDetailActivity
+                ).apply {
+                    text = "🤖 勾选AI推荐（$contextHint）"
+                    setOnClickListener {
+                        aiSuggestedNames.forEach { name -> checkedMap[name] = true }
+                        listAdapter.notifyDataSetChanged()
+                        Snackbar.make(
+                            binding.root,
+                            getString(R.string.ai_suggestion_applied, aiSuggestedNames.size),
+                            Snackbar.LENGTH_SHORT
+                        ).show()
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                    ).apply { marginEnd = (dp * 4).toInt() }
+                }
+
+                // 补全中文说明按钮
+                val aiFillDescBtn = com.google.android.material.button.MaterialButton(
+                    androidx.appcompat.view.ContextThemeWrapper(this@AppDetailActivity, com.google.android.material.R.style.Widget_Material3_Button_OutlinedButton)
+                ).apply {
+                    text = "补全中文说明"
+                    setOnClickListener {
+                        lifecycleScope.launch {
+                            try {
+                                val client = AiClient(this@AppDetailActivity)
+                                // 专用 prompt：只补全中文说明，不影响勾选状态
+                                val activityList = items.joinToString("\n") { "  ${it.name}" }
+                                val prompt = buildString {
+                                    appendLine("请分析 $pkg 的以下 Android Activity 页面，为每个页面补充简短的中文功能说明。")
+                                    appendLine()
+                                    appendLine("页面列表：")
+                                    appendLine(activityList)
+                                    appendLine()
+                                    appendLine("请按以下格式返回（每行一个）：")
+                                    appendLine("Activity类名|中文说明")
+                                    appendLine()
+                                    appendLine("中文说明要求：简短准确，描述该页面的功能用途。")
+                                    appendLine("示例：")
+                                    appendLine("com.example.MainActivity|应用首页")
+                                    appendLine("com.example.LoginActivity|登录注册页面")
+                                }
+                                val messages = listOf(
+                                    AiClient.ChatMessage("system", "你是 Android 应用分析助手，只返回格式化的中文说明列表，不要解释。"),
+                                    AiClient.ChatMessage("user", prompt)
+                                )
+                                val reply = client.chat(messages) { name, args ->
+                                    AiToolExecutor.execute(this@AppDetailActivity, name, args)
+                                }
+                                // 只解析中文说明，不修改勾选状态和推荐集合
+                                reply.lines().forEach { line ->
+                                    val parts = line.split("|", "：", ":", limit = 2)
+                                    if (parts.size >= 2) {
+                                        val actName = parts[0].trim().removePrefix("★").trim()
+                                        val zhDesc = parts[1].trim()
+                                        if (actName.isNotEmpty() && zhDesc.isNotEmpty()) {
+                                            zhDescCache[actName] = zhDesc
+                                        }
+                                    }
+                                }
+                                // 缓存到本地，下次抓取直接使用
+                                if (zhDescCache.isNotEmpty()) {
+                                    ActivityLabelCache.putAll(this@AppDetailActivity, pkg, HashMap(zhDescCache))
+                                }
+                                listAdapter.notifyDataSetChanged()
+                                Snackbar.make(binding.root, "AI 已补全 ${zhDescCache.size} 个页面的中文说明", Snackbar.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Snackbar.make(binding.root, "补全失败：${e.message}", Snackbar.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                    )
+                }
+
+                // AI 按钮行（横排）
+                val aiBtnRow = LinearLayout(this@AppDetailActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = (dp * 8).toInt() }
+                    addView(aiRecommendBtn)
+                    addView(aiFillDescBtn)
+                }
+                addView(aiBtnRow)
+            }
+
+            // 批量操作按钮行
+            val batchBtnRow = LinearLayout(this@AppDetailActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = (dp * 8).toInt() }
+            }
+
+            fun batchBtn(label: String, action: () -> Unit): com.google.android.material.button.MaterialButton {
+                return com.google.android.material.button.MaterialButton(
+                    androidx.appcompat.view.ContextThemeWrapper(this@AppDetailActivity, com.google.android.material.R.style.Widget_Material3_Button_OutlinedButton)
+                ).apply {
+                    text = label
+                    textSize = 12f
+                    setOnClickListener { action() }
+                    layoutParams = LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                    ).apply { marginEnd = (dp * 4).toInt() }
+                }
+            }
+
+            batchBtnRow.addView(batchBtn("全选") {
+                items.forEach { checkedMap[it.name] = true }
+                listAdapter.notifyDataSetChanged()
+            })
+            batchBtnRow.addView(batchBtn("取消全选") {
+                items.forEach { checkedMap[it.name] = false }
+                listAdapter.notifyDataSetChanged()
+            })
+            batchBtnRow.addView(batchBtn("反选") {
+                items.forEach { checkedMap[it.name] = checkedMap[it.name] != true }
+                listAdapter.notifyDataSetChanged()
+            })
+            addView(batchBtnRow)
+
             addView(search)
             addView(list)
+
+            // AI 已配置时，后台获取建议
+            if (aiConfigured) {
+                lifecycleScope.launch {
+                    try {
+                        val client = AiClient(this@AppDetailActivity)
+                        val prompt = buildContextAwarePrompt(pkg, items.map { it.name to it.label }, fieldContext)
+                        val messages = listOf(
+                            AiClient.ChatMessage("system", "你是 Android Activity 用途分析助手。只返回格式化的标签列表，不要解释。"),
+                            AiClient.ChatMessage("user", prompt)
+                        )
+                        val reply = client.chat(messages) { name, args ->
+                            AiToolExecutor.execute(this@AppDetailActivity, name, args)
+                        }
+                        parseAiSuggestions(reply, aiSuggestions, aiSuggestedNames, checkedMap, pkg, zhDescCache)
+                        listAdapter.notifyDataSetChanged()
+                    } catch (_: Exception) { }
+                }
+            }
             list.layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 (resources.displayMetrics.heightPixels * 0.45f).toInt()
@@ -911,6 +1148,8 @@ class AppDetailActivity : AppCompatActivity() {
                     when (fill) {
                         Fill.PAIR -> picked.joinToString(",") { "$it:*" }
                         Fill.LIST -> picked.joinToString(",")
+                        // PLACEHOLDER 已在函数入口分流到专用选择器
+                        Fill.PLACEHOLDER -> picked.joinToString(",")
                     }
                 )
                 Snackbar.make(
@@ -920,6 +1159,418 @@ class AppDetailActivity : AppCompatActivity() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    /**
+     * placeholder 专用选择器：分别单选「主页面（左栏）」和「占位页面（右栏默认页）」，
+     * 确认后生成「主页面:占位页面」；已有的其他配对会保留。
+     */
+    private fun showPlaceholderPairPicker(current: String, onDone: (String) -> Unit) {
+        val pm = packageManager
+        val acts = runCatching {
+            pm.getPackageInfo(pkg, PackageManager.GET_ACTIVITIES).activities
+        }.getOrNull()
+        if (acts.isNullOrEmpty()) {
+            Snackbar.make(binding.root, R.string.capture_none, Snackbar.LENGTH_SHORT).show()
+            return
+        }
+        val launcher = runCatching {
+            pm.getLaunchIntentForPackage(pkg)?.component?.className
+        }.getOrNull()
+
+        data class PairItem(val name: String, val label: String, val isMain: Boolean, val zhDesc: String = "")
+
+        val cachedLabels = ActivityLabelCache.getAllForPackage(this, pkg)
+        // 可变中文说明表：初始取本地缓存，AI 补全后实时更新
+        val zhDescMap = HashMap(cachedLabels)
+        val items = acts.mapNotNull { a ->
+            a.name?.let { name ->
+                val label = runCatching { a.loadLabel(pm).toString() }.getOrDefault("")
+                PairItem(name, label, name == launcher, cachedLabels[name] ?: "")
+            }
+        }.distinctBy { it.name }
+            .sortedWith(compareByDescending<PairItem> { it.isMain }.thenBy { it.name })
+
+        // 解析已有配对（主页面:占位页面，多对用逗号分隔）
+        val existingPairs = current.split(',', ';').mapNotNull { seg ->
+            val p = seg.trim().split(':', limit = 2)
+            if (p.size == 2 && p[0].isNotBlank() && p[1].isNotBlank()) p[0].trim() to p[1].trim()
+            else null
+        }
+
+        val dp = resources.displayMetrics.density
+        val gray = ContextCompat.getColor(this, R.color.field_en)
+        val listHeight = (resources.displayMetrics.heightPixels * 0.20f).toInt()
+
+        val search = EditText(this).apply {
+            hint = getString(R.string.picker_filter_hint)
+            setSingleLine()
+        }
+
+        // 单选列表适配器，复用 item_page_picker 布局，CheckBox 当作单选圆点用
+        fun makeAdapter(initialSelection: String?) = object : BaseAdapter() {
+            var shown: List<PairItem> = items
+            var selected: String? = initialSelection
+            override fun getCount(): Int = shown.size
+            override fun getItem(position: Int): PairItem = shown[position]
+            override fun getItemId(position: Int): Long = position.toLong()
+
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = convertView ?: LayoutInflater.from(this@AppDetailActivity)
+                    .inflate(R.layout.item_page_picker, parent, false)
+                val item = shown[position]
+                v.findViewById<TextView>(R.id.tvClassName).text =
+                    if (item.isMain) "★ ${item.name}" else item.name
+                val tvDesc = v.findViewById<TextView>(R.id.tvDesc)
+                val zhDesc = zhDescMap[item.name].orEmpty()
+                if (zhDesc.isNotEmpty()) {
+                    tvDesc.visibility = View.VISIBLE
+                    tvDesc.text = zhDesc
+                    tvDesc.setTextColor(gray)
+                } else {
+                    tvDesc.visibility = View.GONE
+                }
+                v.findViewById<TextView>(R.id.tvAiTag).visibility = View.GONE
+                v.findViewById<CheckBox>(R.id.cb).isChecked = selected == item.name
+                return v
+            }
+        }
+
+        val primaryAdapter = makeAdapter(existingPairs.firstOrNull()?.first)
+        val placeholderAdapter = makeAdapter(existingPairs.firstOrNull()?.second)
+
+        fun makeList(adapter: BaseAdapter, onSelect: (String) -> Unit) = ListView(this).apply {
+            this.adapter = adapter
+            dividerHeight = 0
+            isVerticalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, listHeight
+            )
+            setOnItemClickListener { _, _, pos, _ ->
+                @Suppress("UNCHECKED_CAST")
+                val item = (adapter.getItem(pos) as PairItem)
+                onSelect(item.name)
+                adapter.notifyDataSetChanged()
+            }
+        }
+
+        val primaryList = makeList(primaryAdapter) { name ->
+            primaryAdapter.selected = name
+        }
+        val placeholderList = makeList(placeholderAdapter) { name ->
+            placeholderAdapter.selected = name
+        }
+
+        // 筛选同时作用于两个列表
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                val q = s?.toString()?.trim() ?: ""
+                val filtered = if (q.isEmpty()) items else items.filter {
+                    it.name.contains(q, true) || it.label.contains(q, true)
+                }
+                primaryAdapter.shown = filtered
+                placeholderAdapter.shown = filtered
+                primaryAdapter.notifyDataSetChanged()
+                placeholderAdapter.notifyDataSetChanged()
+            }
+        })
+
+        fun sectionTitle(text: String) = TextView(this).apply {
+            this.text = text
+            textSize = 14f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, (dp * 10).toInt(), 0, (dp * 4).toInt())
+        }
+
+        fun outlinedBtn(label: String, action: () -> Unit) =
+            com.google.android.material.button.MaterialButton(
+                androidx.appcompat.view.ContextThemeWrapper(
+                    this@AppDetailActivity,
+                    com.google.android.material.R.style.Widget_Material3_Button_OutlinedButton
+                )
+            ).apply {
+                text = label
+                textSize = 12f
+                setOnClickListener { action() }
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                ).apply { marginEnd = (dp * 4).toInt() }
+            }
+
+        // AI 已配置时提供「推荐配对」与「补全中文说明」
+        val aiConfigured = ModelManager.getCurrent(this) != null
+        var aiBtnRow: LinearLayout? = null
+        if (aiConfigured) {
+            aiBtnRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                // AI 推荐配对：自动选出主页面和占位页面
+                addView(com.google.android.material.button.MaterialButton(this@AppDetailActivity).apply {
+                    text = "🤖 AI推荐配对"
+                    textSize = 12f
+                    setOnClickListener {
+                        lifecycleScope.launch {
+                            try {
+                                val client = AiClient(this@AppDetailActivity)
+                                val prompt = buildString {
+                                    appendLine("请分析 $pkg 的以下 Android Activity 页面，为平行窗口（左右分栏）选出一对页面：")
+                                    appendLine("1. 主页面：应用启动后首先进入的核心主页面（通常是标 ★ 的启动页）")
+                                    appendLine("2. 占位页面：主页面在左栏打开时，适合在右栏默认显示的页面；优先选内容简单的列表页、引导页或空白页，不要选登录、验证码、网页验证等页面，也不要与主页面相同")
+                                    appendLine()
+                                    appendLine("页面列表：")
+                                    items.forEach { appendLine("  ${it.name}") }
+                                    appendLine()
+                                    appendLine("只返回两行，每行格式：Activity类名|角色|中文说明")
+                                    appendLine("角色只能是「主页面」或「占位页面」，示例：")
+                                    appendLine("com.example.MainActivity|主页面|应用首页")
+                                    appendLine("com.example.PlaceholderActivity|占位页面|右栏默认列表")
+                                }
+                                val messages = listOf(
+                                    AiClient.ChatMessage("system", "你是 Android 应用分析助手，只按规定格式返回两行结果，不要解释。"),
+                                    AiClient.ChatMessage("user", prompt)
+                                )
+                                val reply = client.chat(messages) { name, args ->
+                                    AiToolExecutor.execute(this@AppDetailActivity, name, args)
+                                }
+                                var pickedPrimary: String? = null
+                                var pickedPlaceholder: String? = null
+                                reply.lines().forEach { line ->
+                                    val parts = line.split("|", "：", ":", limit = 3)
+                                    if (parts.size >= 2) {
+                                        val actName = parts[0].trim().removePrefix("★").trim()
+                                        if (items.none { it.name == actName }) return@forEach
+                                        val tag = parts[1]
+                                        when {
+                                            tag.contains("占位") -> pickedPlaceholder = actName
+                                            tag.contains("主") -> pickedPrimary = actName
+                                        }
+                                        if (parts.size >= 3 && parts[2].trim().isNotEmpty()) {
+                                            zhDescMap[actName] = parts[2].trim()
+                                        }
+                                    }
+                                }
+                                pickedPrimary?.let { primaryAdapter.selected = it }
+                                pickedPlaceholder?.let { placeholderAdapter.selected = it }
+                                if (zhDescMap.isNotEmpty()) {
+                                    ActivityLabelCache.putAll(this@AppDetailActivity, pkg, HashMap(zhDescMap))
+                                }
+                                primaryAdapter.notifyDataSetChanged()
+                                placeholderAdapter.notifyDataSetChanged()
+                                Snackbar.make(
+                                    binding.root,
+                                    when {
+                                        pickedPrimary != null && pickedPlaceholder != null ->
+                                            "AI 已选好主页面和占位页面，请确认"
+                                        pickedPrimary != null || pickedPlaceholder != null ->
+                                            "AI 只识别出一个页面，请手动补选另一个"
+                                        else -> "AI 未能识别合适的页面，请手动选择"
+                                    },
+                                    Snackbar.LENGTH_SHORT
+                                ).show()
+                            } catch (e: Exception) {
+                                Snackbar.make(binding.root, "推荐失败：${e.message}", Snackbar.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    layoutParams = LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                    ).apply { marginEnd = (dp * 4).toInt() }
+                })
+                // 补全中文说明：只更新说明，不影响选择
+                addView(outlinedBtn("补全中文说明") {
+                    lifecycleScope.launch {
+                        try {
+                            val client = AiClient(this@AppDetailActivity)
+                            val prompt = buildString {
+                                appendLine("请分析 $pkg 的以下 Android Activity 页面，为每个页面补充简短的中文功能说明。")
+                                appendLine()
+                                appendLine("页面列表：")
+                                items.forEach { appendLine("  ${it.name}") }
+                                appendLine()
+                                appendLine("请按以下格式返回（每行一个）：")
+                                appendLine("Activity类名|中文说明")
+                                appendLine("示例：com.example.MainActivity|应用首页")
+                            }
+                            val messages = listOf(
+                                AiClient.ChatMessage("system", "你是 Android 应用分析助手，只返回格式化的中文说明列表，不要解释。"),
+                                AiClient.ChatMessage("user", prompt)
+                            )
+                            val reply = client.chat(messages) { name, args ->
+                                AiToolExecutor.execute(this@AppDetailActivity, name, args)
+                            }
+                            reply.lines().forEach { line ->
+                                val parts = line.split("|", "：", ":", limit = 2)
+                                if (parts.size >= 2) {
+                                    val actName = parts[0].trim().removePrefix("★").trim()
+                                    val zh = parts[1].trim()
+                                    if (actName.isNotEmpty() && zh.isNotEmpty()) zhDescMap[actName] = zh
+                                }
+                            }
+                            if (zhDescMap.isNotEmpty()) {
+                                ActivityLabelCache.putAll(this@AppDetailActivity, pkg, HashMap(zhDescMap))
+                            }
+                            primaryAdapter.notifyDataSetChanged()
+                            placeholderAdapter.notifyDataSetChanged()
+                            Snackbar.make(binding.root, "AI 已补全 ${zhDescMap.size} 个页面的中文说明", Snackbar.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Snackbar.make(binding.root, "补全失败：${e.message}", Snackbar.LENGTH_SHORT).show()
+                        }
+                    }
+                })
+            }
+        }
+
+        // 清空两段选择
+        val clearRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            addView(outlinedBtn("清空选择") {
+                primaryAdapter.selected = null
+                placeholderAdapter.selected = null
+                primaryAdapter.notifyDataSetChanged()
+                placeholderAdapter.notifyDataSetChanged()
+            })
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((dp * 20).toInt(), (dp * 8).toInt(), (dp * 20).toInt(), 0)
+            aiBtnRow?.let { addView(it) }
+            addView(clearRow)
+            addView(search)
+            addView(sectionTitle("① 主页面（在左栏打开的页面，通常是 ★ 主界面）"))
+            addView(primaryList)
+            addView(sectionTitle("② 右栏默认显示的页面（占位页面）"))
+            addView(placeholderList)
+            addView(TextView(this@AppDetailActivity).apply {
+                text = "效果：主页面在左栏打开时，右栏自动显示占位页面。最终填写格式为「主页面:占位页面」。"
+                textSize = 12f
+                setTextColor(gray)
+                setPadding(0, (dp * 8).toInt(), 0, 0)
+            })
+        }
+
+        // 用 create + 自定义确定按钮，校验未通过时不关闭
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("选择占位页面配对")
+            .setView(container)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener {
+                    val p = primaryAdapter.selected
+                    val q = placeholderAdapter.selected
+                    when {
+                        p == null || q == null ->
+                            Snackbar.make(binding.root, "请分别选择主页面和占位页面", Snackbar.LENGTH_SHORT).show()
+                        p == q ->
+                            Snackbar.make(binding.root, "主页面和占位页面不能是同一个页面", Snackbar.LENGTH_SHORT).show()
+                        else -> {
+                            // 保留已有的其他配对
+                            val others = existingPairs.drop(1).joinToString(",") { "${it.first}:${it.second}" }
+                            onDone(if (others.isEmpty()) "$p:$q" else "$p:$q,$others")
+                            dialog.dismiss()
+                        }
+                    }
+                }
+        }
+        dialog.show()
+    }
+
+    /** 根据入口上下文生成 AI 分析 prompt */
+    private fun buildContextAwarePrompt(
+        pkg: String,
+        items: List<Pair<String, String>>,
+        fieldContext: String
+    ): String {
+        val contextHint = when (fieldContext) {
+            "activityRule" -> "应该参与分屏的页面"
+            "splitPairRule" -> "应该参与左右栏配对的页面"
+            "placeholder" -> "适合作为右栏默认显示的页面"
+            "relaunchRule", "relunchRule" -> "需要重启才能正常显示的页面"
+            "forcePortraitActivity" -> "应该始终竖着显示的页面"
+            "sizeCompatRule" -> "需要尺寸兼容处理的页面"
+            "autoUiActivityRule" -> "需要界面自动适配的页面"
+            "flags" -> "有特殊标记需求的页面"
+            else -> "适合该功能的页面"
+        }
+
+        val tagHint = when (fieldContext) {
+            "activityRule", "splitPairRule" -> "主页面、详情页、列表页、播放页"
+            "placeholder" -> "主页面、启动页"
+            "forcePortraitActivity" -> "登录页、设置页、弹窗、表单页"
+            "relaunchRule", "relunchRule" -> "设置页、特殊功能页"
+            else -> ""
+        }
+
+        return buildString {
+            appendLine("请分析 $pkg 的以下 Activity 页面列表，为每个页面标注功能用途和中文说明。")
+            appendLine()
+            appendLine("页面列表：")
+            items.forEach { item ->
+                appendLine("  ${item.first} (${item.second})")
+            }
+            appendLine()
+            appendLine("请按以下格式返回（每行一个，格式：Activity类名|功能标签|中文说明）：")
+            if (tagHint.isNotEmpty()) {
+                appendLine("功能标签只能是：$tagHint、不参与、其他")
+                appendLine("中文说明：用简短的中文描述该页面的功能（如：首页信息流、商品详情、登录注册、系统设置等）")
+                appendLine("其中适合「$contextHint」的页面请标记为：适合")
+            } else {
+                appendLine("功能标签描述该页面的用途（如：主页、列表、详情、登录、设置、播放等）")
+                appendLine("中文说明：用简短的中文描述该页面的功能")
+            }
+            appendLine()
+            appendLine("示例格式：")
+            appendLine("com.example.MainActivity|适合|首页信息流")
+            appendLine("com.example.LoginActivity|登录页|登录注册页面")
+        }
+    }
+
+    /** 解析 AI 返回的建议结果（支持3段格式：类名|标签|中文说明） */
+    private fun parseAiSuggestions(
+        reply: String,
+        aiSuggestions: HashMap<String, String>,
+        aiSuggestedNames: HashSet<String>,
+        checkedMap: HashMap<String, Boolean>,
+        packageName: String = "",
+        zhDescCache: HashMap<String, String> = HashMap()
+    ) {
+        val cachedLabels = mutableMapOf<String, String>()
+        reply.lines().forEach { line ->
+            val parts = line.split("|", "：", ":", limit = 3)
+            if (parts.size >= 2) {
+                val actName = parts[0].trim().removePrefix("★").trim()
+                val tag = parts[1].trim()
+                aiSuggestions[actName] = tag
+                if (tag == "适合") {
+                    aiSuggestedNames.add(actName)
+                    checkedMap[actName] = true
+                }
+                // 解析中文说明（第三段）
+                if (parts.size >= 3) {
+                    val zhDesc = parts[2].trim()
+                    if (zhDesc.isNotEmpty()) {
+                        zhDescCache[actName] = zhDesc
+                        cachedLabels[actName] = zhDesc
+                    }
+                }
+            }
+        }
+        // 批量缓存到本地
+        if (packageName.isNotEmpty() && cachedLabels.isNotEmpty()) {
+            ActivityLabelCache.putAll(this, packageName, cachedLabels)
+        }
     }
 
     private fun dropdown(
@@ -939,9 +1590,11 @@ class AppDetailActivity : AppCompatActivity() {
     }
 
     private fun save() {
+        rule.mode = pendingMode  // 只在保存时才写入模式
         ConfigRepository.saveRule(rule)
         userSaved = true
         dirty = false
+        UiKit.vibrate(this)
         Snackbar.make(binding.root, R.string.saved, Snackbar.LENGTH_SHORT).show()
     }
 

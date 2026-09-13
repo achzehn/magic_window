@@ -2,6 +2,7 @@
 <resources>
     <color name="conflict_error">#B3261E</color>
     <color name="ok_green">#1B6B3A</color>
+    <color name="ok_green_bg">#1A1B6B3A</color>
 
     <!-- 模式标签：颜色深浅对应优先级 固定横屏 &gt; 平行窗口 &gt; 通用全屏 -->
     <color name="mode_full">#4A6572</color>

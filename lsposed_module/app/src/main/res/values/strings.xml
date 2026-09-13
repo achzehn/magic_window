@@ -150,6 +150,64 @@
 
     <!-- Root 权限 -->
     <string name="root_required_title">需要 Root 权限</string>
-    <string name="root_required_message">本模块必须依赖 Root 权限才能正常工作。\n\n请确保设备已 Root 并安装了 SuperSU、Magisk 或 KernelSU 等 Root 管理工具。</string>
+    <string name="root_required_message">本模块必须依赖 Root 权限才能正常工作。\n\n请确保设备已通过 Magisk、KernelSU 或 APatch 获取 Root，并在授权弹窗中允许本应用使用 Root。</string>
     <string name="root_required_ok">我知道了</string>
+
+    <!-- AI 助手 -->
+    <string name="ai_entry_title">AI 智能助手</string>
+    <string name="ai_entry_desc">告诉 AI 你想怎么适配，它会帮你自动配置</string>
+    <string name="ai_entry_btn">开始对话</string>
+    <string name="ai_chat_title">AI 助手</string>
+    <string name="ai_name">完美横屏 AI</string>
+    <string name="ai_input_hint">告诉我你想怎么设置…</string>
+    <string name="ai_send">发送</string>
+    <string name="ai_thinking">思考中…</string>
+    <string name="ai_welcome">你好！我是完美横屏的 AI 助手。\n\n告诉我你想适配哪个应用，我会帮你选择最合适的模式和参数。\n\n比如试试：「帮我设置哔哩哔哩的横屏」</string>
+    <string name="ai_quick_select_app">选择应用适配</string>
+    <string name="ai_quick_view_rules">查看已配置规则</string>
+    <string name="ai_quick_help">了解各种模式</string>
+    <string name="ai_settings">AI 模型设置</string>
+    <string name="ai_clear_chat">清空对话</string>
+    <string name="ai_save">保存</string>
+    <string name="ai_settings_saved">AI 设置已保存</string>
+    <string name="ai_setup_title">配置 AI 助手</string>
+    <string name="ai_setup_desc">需要配置一个兼容 OpenAI 格式的 API 来驱动 AI 助手。\n\n支持 OpenAI、DeepSeek、通义千问等兼容接口。</string>
+
+    <!-- AI 模型配置 -->
+    <string name="ai_model_config_title">AI 模型配置</string>
+    <string name="ai_model_config_btn">配置模型</string>
+    <string name="ai_model_configured">已配置</string>
+    <string name="ai_model_not_configured">未配置</string>
+    <string name="ai_model_not_configured_hint">点击配置 AI 模型后即可使用智能助手</string>
+    <string name="ai_manage_models">模型管理</string>
+    <string name="ai_model_edit">编辑模型</string>
+    <string name="ai_model_add">添加模型</string>
+    <string name="ai_history">历史对话</string>
+    <string name="ai_new_chat">新对话</string>
+    <string name="ai_clear_history">清空历史</string>
+    <string name="ai_no_history">暂无历史对话</string>
+    <string name="ai_history_cleared">历史已清空</string>
+    <string name="ai_attach">添加附件</string>
+    <string name="ai_model_switch">切换模型</string>
+    <string name="ai_model_management">模型管理</string>
+    <string name="ai_model_management_desc">配置 API key 添加更多可用模型，预置模型默认使用稳定版本。</string>
+    <string name="ai_current_model">当前模型</string>
+    <string name="ai_model_basic">基础配置</string>
+    <string name="ai_model_api_base_hint">API 请求地址（如 https://api.openai.com/v1）</string>
+    <string name="ai_model_id_hint">模型 ID（如 gpt-4o-mini）</string>
+    <string name="ai_model_name_hint">模型显示名称（选填）</string>
+    <string name="ai_model_key_hint">API 密钥</string>
+    <string name="ai_model_test">测试连通性</string>
+    <string name="ai_model_testing">测试中…</string>
+    <string name="ai_model_test_empty">请先填写 API 地址、模型 ID 和密钥</string>
+    <string name="ai_model_advanced">高级配置</string>
+    <string name="ai_model_tokens">上下文窗口（Token）</string>
+    <string name="ai_model_tool_rounds">工具调用轮数</string>
+    <string name="ai_model_sampling">采样参数</string>
+
+    <!-- AI 页面推荐 -->
+    <string name="ai_suggest_pages">AI 推荐页面</string>
+    <string name="ai_suggestion_applied">AI 已推荐并勾选了 %1$d 个页面</string>
+    <string name="ai_suggestion_failed">AI 推荐失败：%1$s</string>
+    <string name="ai_no_suggestion">AI 未能给出有效推荐</string>
 </resources>

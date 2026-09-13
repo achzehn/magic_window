@@ -36,7 +36,8 @@
 
         <activity
             android:name=".ui.MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
@@ -60,12 +61,20 @@
         <activity
             android:name=".ui.AppListActivity"
             android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:parentActivityName=".ui.MainActivity" />
 
         <activity
             android:name=".ui.AppDetailActivity"
             android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:parentActivityName=".ui.AppListActivity" />
+
+        <activity
+            android:name=".ai.AiChatActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:parentActivityName=".ui.MainActivity" />
 
     </application>
 

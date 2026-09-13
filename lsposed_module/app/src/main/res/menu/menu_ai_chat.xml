@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_new_chat"
+        android:title="@string/ai_new_chat"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_history"
+        android:title="@string/ai_history"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_clear"
+        android:title="@string/ai_clear_chat"
+        app:showAsAction="never" />
+</menu>

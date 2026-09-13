@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:fitsSystemWindows="true">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        app:title="@string/ai_chat_title"
+        app:navigationIcon="@drawable/ic_back"
+        app:menu="@menu/menu_ai_chat" />
+
+    <!-- 聊天消息列表 -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recycler"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingVertical="8dp"
+        android:paddingBottom="8dp" />
+
+    <!-- 工具执行状态 -->
+    <TextView
+        android:id="@+id/tvToolStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="20dp"
+        android:paddingVertical="4dp"
+        android:textSize="11sp"
+        android:textColor="?attr/colorPrimary"
+        android:visibility="gone"
+        android:drawablePadding="6dp" />
+
+    <!-- 附件预览区 -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvAttachments"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="12dp"
+        android:orientation="horizontal"
+        android:visibility="gone" />
+
+    <!-- 输入区域（Kimi 风格：底部圆角卡片） -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingHorizontal="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="8dp"
+        android:background="?attr/colorSurface"
+        android:elevation="4dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- 附件按钮 -->
+            <ImageButton
+                android:id="@+id/btnAttach"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_add"
+                android:contentDescription="@string/ai_attach"
+                android:scaleType="centerInside" />
+
+            <!-- 模型切换按钮 -->
+            <TextView
+                android:id="@+id/btnModelSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:paddingHorizontal="10dp"
+                android:gravity="center"
+                android:textSize="11sp"
+                android:textColor="?attr/colorPrimary"
+                android:background="@drawable/bg_chip"
+                android:drawableEnd="@android:drawable/arrow_down_float"
+                android:drawablePadding="2dp"
+                android:singleLine="true"
+                android:maxWidth="140dp"
+                android:layout_marginEnd="4dp"
+                android:contentDescription="@string/ai_model_switch" />
+
+            <!-- 输入框 -->
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/etInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/ai_input_hint"
+                android:maxLines="6"
+                android:minLines="1"
+                android:inputType="textMultiLine"
+                android:textSize="15sp"
+                android:paddingHorizontal="8dp"
+                android:background="@android:color/transparent" />
+
+            <!-- 发送按钮 -->
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fabSend"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:src="@android:drawable/ic_menu_send"
+                android:contentDescription="@string/ai_send"
+                app:fabSize="mini"
+                app:fabCustomSize="40dp" />
+        </LinearLayout>
+    </LinearLayout>
+
+</LinearLayout>

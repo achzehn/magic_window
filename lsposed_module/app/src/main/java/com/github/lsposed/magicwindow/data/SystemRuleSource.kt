@@ -39,7 +39,7 @@ object SystemRuleSource {
     var loaded = false
         private set
 
-    /** 云控是否通过 root 读取成功，失败时静默降级到本地名单 */
+    /** su 是否已成功执行（Magisk / KernelSU / APatch 授权后为 true） */
     @Volatile
     var rootAvailable = false
         private set
@@ -90,8 +90,9 @@ object SystemRuleSource {
                 Constants.FILES_CLOUD_AUTO_UI_RULES.forEach { add(Constants.CLOUD_RULE_DIR + it) }
             }
             val cloud = readViaRoot(cloudPaths)
-            rootAvailable = cloud.isNotEmpty()
-            if (!rootAvailable) messages += "未取得 root 权限，云控名单不可读，已改用 /product/etc 内置名单"
+            if (!rootAvailable) {
+                messages += "未取得 root 权限，云控名单不可读，已改用 /product/etc 内置名单"
+            }
 
             tables[Kind.EMBEDDING] = chooseTable(
                 Constants.FILES_CLOUD_EMBEDDED_RULES.map(Constants.CLOUD_RULE_DIR::plus), cloud,
@@ -153,35 +154,71 @@ object SystemRuleSource {
     private data class ParsedFile(val dataVersion: Long, val table: Map<String, Map<String, String>>)
 
     /**
-     * 通过 root（KernelSU / Magisk 兼容的 su）读取文件。
+     * 通过 root（Magisk / KernelSU / APatch 兼容的 su）读取文件。
      * 用分隔标记拼接多条 cat，一次进程调用取回全部文件；读不到（文件不存在/拒绝）返回空 Map。
+     * 最多尝试 3 次，退避 2s/3s 等待用户在授权弹窗中授权；stdout/stderr 并发排空，
+     * 避免云控 XML 较大时写满管道缓冲区导致进程挂死超时。
      */
     private fun readViaRoot(paths: List<String>): Map<String, String> {
         val marker = "\u0001MW\u0001"
         val cmd = paths.joinToString(separator = " ") { path ->
             "echo '$marker$path'; cat '$path' 2>/dev/null;"
         }
-        val process = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
-        val finished = process.waitFor(15, TimeUnit.SECONDS)
-        if (!finished) {
-            process.destroy()
-            return emptyMap()
-        }
-        if (process.exitValue() != 0) return emptyMap()
-        val text = process.inputStream.bufferedReader().readText()
-        if (marker !in text) return emptyMap()
 
-        val result = HashMap<String, String>()
-        // 段首为 marker+路径，其后到下一个 marker 之间是文件内容
-        text.split(marker).forEach { segment ->
-            if (segment.isEmpty()) return@forEach
-            val lineEnd = segment.indexOf('\n')
-            if (lineEnd < 0) return@forEach
-            val path = segment.substring(0, lineEnd).trim()
-            val content = segment.substring(lineEnd + 1)
-            if (path in paths && content.contains("<")) result[path] = content
+        // 首次立即执行，之后退避 2s、3s 重试（等待 su 授权弹窗）
+        val backoff = longArrayOf(0L, 2000L, 3000L)
+        repeat(3) { attempt ->
+            if (backoff[attempt] > 0) Thread.sleep(backoff[attempt])
+            var process: Process? = null
+            try {
+                process = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
+                val proc = process
+
+                // 并发读取 stdout/stderr，防止管道缓冲区写满后 cat 阻塞
+                val outBuf = StringBuilder()
+                val errThread = Thread {
+                    runCatching { proc.errorStream.bufferedReader().readText() }
+                }.apply { isDaemon = true }
+                val outThread = Thread {
+                    runCatching {
+                        proc.inputStream.bufferedReader().forEachLine { outBuf.appendLine(it) }
+                    }
+                }.apply { isDaemon = true }
+                errThread.start()
+                outThread.start()
+
+                val finished = process.waitFor(20, TimeUnit.SECONDS)
+                if (!finished) {
+                    process.destroy()
+                    return@repeat
+                }
+                outThread.join(2000)
+
+                if (process.exitValue() != 0) return@repeat
+
+                val text = outBuf.toString()
+                if (marker !in text) return@repeat
+
+                // 输出中带标记即说明 su 已授权并成功执行（即使云控文件内容为空）
+                rootAvailable = true
+
+                val result = HashMap<String, String>()
+                text.split(marker).forEach { segment ->
+                    if (segment.isEmpty()) return@forEach
+                    val lineEnd = segment.indexOf('\n')
+                    if (lineEnd < 0) return@forEach
+                    val path = segment.substring(0, lineEnd).trim()
+                    val content = segment.substring(lineEnd + 1)
+                    if (path in paths && content.contains("<")) result[path] = content
+                }
+                return result
+            } catch (_: Exception) {
+                // 继续重试
+            } finally {
+                process?.let { runCatching { it.destroy() } }
+            }
         }
-        return result
+        return emptyMap()
     }
 
     // ── XML 解析 ─────────────────────────────────────────────

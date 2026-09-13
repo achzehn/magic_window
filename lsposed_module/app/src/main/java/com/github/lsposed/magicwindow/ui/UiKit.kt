@@ -3,6 +3,10 @@ package com.github.lsposed.magicwindow.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.text.Editable
 import android.text.SpannableStringBuilder
 import android.text.Spanned
@@ -19,6 +23,7 @@ import com.github.lsposed.magicwindow.R
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.slider.Slider
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
@@ -210,5 +215,88 @@ object UiKit {
         sb.setSpan(RelativeSizeSpan(0.78f), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         sb.setSpan(ForegroundColorSpan(gray), start, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         return sb
+    }
+
+    /**
+     * 触发一次短震动反馈。
+     * 用于滑块到达节点、开关切换、Chip 选择等交互。
+     */
+    fun vibrate(context: Context, durationMs: Long = 15) {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            vm?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+        if (vibrator?.hasVibrator() == true) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(durationMs)
+            }
+        }
+    }
+
+    /**
+     * 滑块行：支持无极拖动，在指定节点处触发震动反馈。
+     * @param value 当前值
+     * @param valueRange 取值范围
+     * @param steps 震动节点列表（拖到这些值时触发震动）
+     * @param onChange 值变化回调（连续触发）
+     * @param label 标签
+     * @param en 英文属性名
+     * @param hint 提示文字
+     */
+    fun sliderRow(
+        parent: ViewGroup,
+        label: String,
+        en: String? = null,
+        value: Float,
+        valueRange: ClosedFloatingPointRange<Float>,
+        steps: List<Float>,
+        hint: String? = null,
+        onChange: (Float) -> Unit
+    ): View {
+        val layout = LayoutInflater.from(parent.context)
+            .inflate(R.layout.row_slider, parent, false)
+
+        val titleTv = layout.findViewById<TextView>(R.id.tvTitle)
+        titleTv.text = label
+
+        val descTv = layout.findViewById<TextView>(R.id.tvDesc)
+        descTv.text = helper(en, hint)
+        if (descTv.text.isNullOrEmpty()) descTv.visibility = View.GONE
+
+        val valueTv = layout.findViewById<TextView>(R.id.tvValue)
+        valueTv.text = "%.2f".format(value)
+
+        val slider = layout.findViewById<Slider>(R.id.slider)
+        slider.valueFrom = valueRange.start
+        slider.valueTo = valueRange.endInclusive
+        slider.value = value
+        slider.stepSize = 0.05f
+
+        var lastStep: Float? = null
+        slider.addOnChangeListener { _, sliderValue, fromUser ->
+            if (!fromUser) return@addOnChangeListener
+            valueTv.text = "%.2f".format(sliderValue)
+            // 检查是否到达震动节点
+            val matchedStep = steps.minByOrNull { Math.abs(it - sliderValue) }
+            if (matchedStep != null && Math.abs(matchedStep - sliderValue) < 0.03f
+                && matchedStep != lastStep) {
+                lastStep = matchedStep
+                vibrate(parent.context)
+            }
+            if (matchedStep == null || Math.abs(matchedStep - sliderValue) > 0.05f) {
+                lastStep = null
+            }
+            onChange(sliderValue)
+        }
+
+        layout.disableStateSaving()
+        parent.addView(layout)
+        return layout
     }
 }
