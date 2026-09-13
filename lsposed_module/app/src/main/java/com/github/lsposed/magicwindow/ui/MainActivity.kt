@@ -604,6 +604,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
+        R.id.action_donate -> {
+            showDonateDialog()
+            true
+        }
         R.id.action_hide_icon -> {
             if (item.isChecked) {
                 setIconHidden(false)
@@ -755,6 +759,23 @@ class MainActivity : AppCompatActivity() {
                 finish()
             }
             .setCancelable(false)
+            .show()
+    }
+
+    /** 显示打赏对话框 */
+    private fun showDonateDialog() {
+        val imageView = android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.ic_donate)
+            val padding = (resources.displayMetrics.density * 16).toInt()
+            setPadding(padding, padding, padding, padding)
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+        }
+        
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.donate_title)
+            .setMessage(R.string.donate_message)
+            .setView(imageView)
+            .setPositiveButton(R.string.action_close, null)
             .show()
     }
 }

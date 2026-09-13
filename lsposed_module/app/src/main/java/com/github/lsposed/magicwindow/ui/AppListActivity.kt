@@ -1,6 +1,7 @@
 package com.github.lsposed.magicwindow.ui
 
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
@@ -23,6 +24,7 @@ class AppListActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityAppListBinding
     private lateinit var adapter: AppAdapter
+    private lateinit var prefs: SharedPreferences
 
     private var all: List<AppItem> = emptyList()
     private var loading = false
@@ -38,6 +40,8 @@ class AppListActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityAppListBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        prefs = getSharedPreferences("donate_prefs", MODE_PRIVATE)
 
         setSupportActionBar(binding.toolbar)
         binding.toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
@@ -229,6 +233,12 @@ class AppListActivity : AppCompatActivity() {
         apply()
         Snackbar.make(binding.root, getString(R.string.batch_done, pkgs.size), Snackbar.LENGTH_SHORT)
             .show()
+
+        // 检查是否需要显示打赏提醒
+        val configuredCount = ConfigRepository.configuredCount()
+        if (configuredCount >= 2 && !prefs.getBoolean("donate_shown", false)) {
+            showDonateReminder(configuredCount)
+        }
     }
 
     private fun clearBatch() {
@@ -238,6 +248,27 @@ class AppListActivity : AppCompatActivity() {
         exitSelection()
         apply()
         Snackbar.make(binding.root, getString(R.string.batch_done, pkgs.size), Snackbar.LENGTH_SHORT)
+            .show()
+    }
+
+    private fun showDonateReminder(configuredCount: Int) {
+        val imageView = android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.ic_donate)
+            val padding = (resources.displayMetrics.density * 16).toInt()
+            setPadding(padding, padding, padding, padding)
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+        }
+        
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.donate_title)
+            .setMessage(getString(R.string.donate_reminder, configuredCount))
+            .setView(imageView)
+            .setPositiveButton(R.string.action_close) { _, _ ->
+                prefs.edit().putBoolean("donate_shown", true).apply()
+            }
+            .setOnCancelListener {
+                prefs.edit().putBoolean("donate_shown", true).apply()
+            }
             .show()
     }
 }

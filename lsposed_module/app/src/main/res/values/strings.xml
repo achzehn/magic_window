@@ -210,4 +210,10 @@
     <string name="ai_suggestion_applied">AI 已推荐并勾选了 %1$d 个页面</string>
     <string name="ai_suggestion_failed">AI 推荐失败：%1$s</string>
     <string name="ai_no_suggestion">AI 未能给出有效推荐</string>
+
+    <!-- 打赏 -->
+    <string name="action_donate">打赏</string>
+    <string name="donate_title">感谢支持</string>
+    <string name="donate_message">如果这个工具对你有帮助，可以请作者喝杯咖啡 ☕</string>
+    <string name="donate_reminder">你已经设置了 %1$d 个应用，感谢使用！\n\n如果觉得好用，可以考虑打赏支持一下 😊</string>
 </resources>
