@@ -5,10 +5,9 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingHorizontal="16dp"
-    android:paddingVertical="4dp">
+    android:paddingVertical="5dp">
 
-    <!-- 用户消息：右对齐 -->
+    <!-- 用户消息：右对齐，品牌蓝气泡 -->
     <LinearLayout
         android:id="@+id/layoutUser"
         android:layout_width="match_parent"
@@ -20,20 +19,20 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:maxWidth="280dp"
-            app:cardCornerRadius="16dp"
+            android:maxWidth="@dimen/chat_bubble_user"
+            app:cardBackgroundColor="?attr/colorPrimary"
+            app:cardCornerRadius="20dp"
             app:cardElevation="0dp"
-            app:strokeWidth="0dp"
-            style="@style/Widget.Material3.CardView.Filled">
+            app:strokeWidth="0dp">
 
             <TextView
                 android:id="@+id/tvUserMessage"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:paddingHorizontal="16dp"
-                android:paddingVertical="10dp"
+                android:paddingVertical="11dp"
                 android:textSize="15sp"
-                android:textColor="?attr/colorOnSecondaryContainer" />
+                android:textColor="?attr/colorOnPrimary" />
         </com.google.android.material.card.MaterialCardView>
     </LinearLayout>
 
@@ -48,13 +47,15 @@
 
         <!-- AI 头像 -->
         <ImageView
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:layout_marginEnd="8dp"
-            android:layout_marginTop="2dp"
-            android:src="@android:drawable/ic_menu_info_details"
-            android:background="?attr/colorPrimaryContainer"
-            android:padding="4dp"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:layout_marginEnd="10dp"
+            android:src="@drawable/ic_sparkle"
+            android:background="@drawable/bg_icon_container"
+            android:backgroundTint="?attr/colorPrimaryContainer"
+            android:padding="8dp"
+            android:scaleType="centerInside"
+            app:tint="?attr/colorOnPrimaryContainer"
             android:contentDescription="@string/ai_name" />
 
         <LinearLayout
@@ -71,23 +72,24 @@
                 android:textSize="12sp"
                 android:textColor="?attr/colorPrimary"
                 android:textStyle="bold"
-                android:layout_marginBottom="2dp" />
+                android:layout_marginBottom="3dp" />
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:maxWidth="320dp"
-                app:cardCornerRadius="16dp"
+                android:maxWidth="@dimen/chat_bubble_ai"
+                app:cardBackgroundColor="@color/card_bg"
+                app:cardCornerRadius="20dp"
                 app:cardElevation="0dp"
-                app:strokeWidth="0dp"
-                style="@style/Widget.Material3.CardView.Outlined">
+                app:strokeWidth="1dp"
+                app:strokeColor="@color/divider">
 
                 <TextView
                     android:id="@+id/tvAiMessage"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingHorizontal="16dp"
-                    android:paddingVertical="10dp"
+                    android:paddingVertical="11dp"
                     android:textSize="15sp"
                     android:textColor="?attr/colorOnSurface"
                     android:textIsSelectable="true"
@@ -99,12 +101,12 @@
                 android:id="@+id/tvToolCall"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:paddingHorizontal="8dp"
-                android:paddingVertical="3dp"
+                android:layout_marginTop="5dp"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp"
                 android:textSize="11sp"
                 android:textColor="?attr/colorPrimary"
-                android:background="?attr/colorSurfaceVariant"
+                android:background="@drawable/bg_chip"
                 android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
@@ -116,7 +118,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="start"
-        android:paddingStart="36dp"
+        android:paddingStart="44dp"
         android:visibility="gone">
 
         <com.google.android.material.progressindicator.CircularProgressIndicator

@@ -3,14 +3,17 @@
     android:id="@+id/rowRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="?attr/selectableItemBackground"
+    android:background="@drawable/bg_app_item"
     android:clickable="true"
     android:focusable="true"
     android:gravity="center_vertical"
+    android:minHeight="64dp"
     android:orientation="horizontal"
-    android:paddingStart="@dimen/page_padding"
+    android:layout_marginHorizontal="@dimen/item_margin_h"
+    android:layout_marginVertical="@dimen/item_margin_v"
+    android:paddingStart="@dimen/item_padding_h"
     android:paddingTop="10dp"
-    android:paddingEnd="@dimen/page_padding"
+    android:paddingEnd="@dimen/item_padding_h"
     android:paddingBottom="10dp">
 
     <com.google.android.material.checkbox.MaterialCheckBox
@@ -25,6 +28,8 @@
         android:id="@+id/icon"
         android:layout_width="@dimen/icon_size"
         android:layout_height="@dimen/icon_size"
+        android:background="@drawable/bg_icon_mask"
+        android:clipToOutline="true"
         android:contentDescription="@null" />
 
     <LinearLayout

@@ -3,7 +3,7 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/til"
-    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+    style="@style/Widget.MagicWindow.TextInput.Outlined"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginTop="@dimen/row_gap"

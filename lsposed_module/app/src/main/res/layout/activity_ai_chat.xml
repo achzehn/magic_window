@@ -5,13 +5,16 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
+    android:background="@color/app_bg"
     android:fitsSystemWindows="true">
 
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
+        android:background="@android:color/transparent"
         app:title="@string/ai_chat_title"
+        app:titleTextAppearance="@style/Text.MagicWindow.CardTitle"
         app:navigationIcon="@drawable/ic_back"
         app:menu="@menu/menu_ai_chat" />
 
@@ -22,7 +25,8 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
-        android:paddingVertical="8dp"
+        android:paddingHorizontal="@dimen/page_padding"
+        android:paddingTop="8dp"
         android:paddingBottom="8dp" />
 
     <!-- 工具执行状态 -->
@@ -34,6 +38,7 @@
         android:paddingVertical="4dp"
         android:textSize="11sp"
         android:textColor="?attr/colorPrimary"
+        android:background="@drawable/bg_chip"
         android:visibility="gone"
         android:drawablePadding="6dp" />
 
@@ -46,22 +51,26 @@
         android:orientation="horizontal"
         android:visibility="gone" />
 
-    <!-- 输入区域（Kimi 风格：底部圆角卡片） -->
+    <!-- 输入区域（底部圆角卡片风格） -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingHorizontal="12dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="8dp"
-        android:background="?attr/colorSurface"
-        android:elevation="4dp">
+        android:background="@color/card_bg">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/divider" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="bottom|center_horizontal"
+            android:paddingHorizontal="@dimen/page_padding"
+            android:paddingTop="10dp"
+            android:paddingBottom="12dp">
 
             <!-- 附件按钮 -->
             <ImageButton
@@ -69,7 +78,8 @@
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@android:drawable/ic_menu_add"
+                android:src="@drawable/ic_add"
+                app:tint="?attr/colorOnSurfaceVariant"
                 android:contentDescription="@string/ai_attach"
                 android:scaleType="centerInside" />
 
@@ -78,16 +88,17 @@
                 android:id="@+id/btnModelSwitch"
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
+                android:layout_marginStart="6dp"
                 android:paddingHorizontal="10dp"
                 android:gravity="center"
                 android:textSize="11sp"
                 android:textColor="?attr/colorPrimary"
                 android:background="@drawable/bg_chip"
-                android:drawableEnd="@android:drawable/arrow_down_float"
+                android:drawableEnd="@drawable/ic_chevron_down"
                 android:drawablePadding="2dp"
                 android:singleLine="true"
                 android:maxWidth="140dp"
-                android:layout_marginEnd="4dp"
+                android:layout_marginEnd="6dp"
                 android:contentDescription="@string/ai_model_switch" />
 
             <!-- 输入框 -->
@@ -96,24 +107,26 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:background="@drawable/bg_input"
                 android:hint="@string/ai_input_hint"
                 android:maxLines="6"
                 android:minLines="1"
                 android:inputType="textMultiLine"
                 android:textSize="15sp"
-                android:paddingHorizontal="8dp"
-                android:background="@android:color/transparent" />
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="10dp" />
 
             <!-- 发送按钮 -->
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                 android:id="@+id/fabSend"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:src="@android:drawable/ic_menu_send"
+                android:layout_marginStart="8dp"
+                android:src="@drawable/ic_send"
                 android:contentDescription="@string/ai_send"
                 app:fabSize="mini"
-                app:fabCustomSize="40dp" />
+                app:fabCustomSize="40dp"
+                app:maxImageSize="20dp" />
         </LinearLayout>
     </LinearLayout>
 

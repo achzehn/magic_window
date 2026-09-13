@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 10 寸平板：内容居中收窄，应用列表三列 -->
+    <dimen name="page_padding">128dp</dimen>
+
+    <dimen name="list_edge">122dp</dimen>
+    <dimen name="item_margin_h">6dp</dimen>
+    <dimen name="item_margin_v">6dp</dimen>
+    <dimen name="item_padding_h">14dp</dimen>
+
+    <dimen name="chat_bubble_user">520dp</dimen>
+    <dimen name="chat_bubble_ai">600dp</dimen>
+</resources>

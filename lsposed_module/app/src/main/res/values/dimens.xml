@@ -1,7 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 页面节奏 -->
     <dimen name="page_padding">16dp</dimen>
     <dimen name="card_gap">12dp</dimen>
     <dimen name="row_gap">8dp</dimen>
     <dimen name="icon_size">40dp</dimen>
+
+    <!-- HyperOS 风格圆角 -->
+    <dimen name="card_radius">22dp</dimen>
+    <dimen name="card_padding">18dp</dimen>
+
+    <!-- 应用列表（手机：通栏列表） -->
+    <dimen name="list_edge">0dp</dimen>
+    <dimen name="item_margin_h">0dp</dimen>
+    <dimen name="item_margin_v">0dp</dimen>
+    <dimen name="item_padding_h">16dp</dimen>
+
+    <!-- 图标圆角蒙版 -->
+    <dimen name="icon_corner">11dp</dimen>
+
+    <!-- AI 聊天气泡最大宽度（手机） -->
+    <dimen name="chat_bubble_user">300dp</dimen>
+    <dimen name="chat_bubble_ai">340dp</dimen>
 </resources>

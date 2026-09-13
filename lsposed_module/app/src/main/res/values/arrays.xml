@@ -8,6 +8,7 @@
     -->
     <string-array name="xposed_scope">
         <item>android</item>
+        <item>system</item>
         <item>com.github.lsposed.magicwindow</item>
     </string-array>
 </resources>

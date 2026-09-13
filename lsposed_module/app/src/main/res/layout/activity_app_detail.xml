@@ -4,12 +4,16 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/app_bg"
     android:fitsSystemWindows="true">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:liftOnScroll="true">
+        android:background="@android:color/transparent"
+        app:liftOnScroll="true"
+        app:liftOnScrollColor="@color/app_bg"
+        app:statusBarForeground="@android:color/transparent">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
@@ -22,14 +26,15 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:clipToPadding="false"
-        android:paddingBottom="88dp"
+        android:paddingBottom="96dp"
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="@dimen/page_padding">
+            android:paddingHorizontal="@dimen/page_padding"
+            android:paddingTop="4dp">
 
             <!-- 应用信息 + 总启用 -->
             <com.google.android.material.card.MaterialCardView
@@ -45,14 +50,16 @@
 
                     <ImageView
                         android:id="@+id/icon"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:background="@drawable/bg_icon_mask"
+                        android:clipToOutline="true"
                         android:contentDescription="@null" />
 
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="12dp"
+                        android:layout_marginStart="14dp"
                         android:layout_weight="1"
                         android:orientation="vertical">
 
@@ -62,7 +69,7 @@
                             android:layout_height="wrap_content"
                             android:ellipsize="end"
                             android:maxLines="1"
-                            android:textAppearance="?attr/textAppearanceTitleMedium" />
+                            android:textAppearance="@style/Text.MagicWindow.CardTitle" />
 
                         <TextView
                             android:id="@+id/tvPkg"
@@ -88,14 +95,15 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/card_gap"
-                android:visibility="gone">
+                android:visibility="gone"
+                app:cardBackgroundColor="?attr/colorPrimaryContainer">
 
                 <TextView
                     android:id="@+id/tvBuiltin"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textAppearance="?attr/textAppearanceBodySmall"
-                    android:textColor="?attr/colorOnSecondaryContainer" />
+                    android:textColor="?attr/colorOnPrimaryContainer" />
             </com.google.android.material.card.MaterialCardView>
 
             <!-- 系统禁用的应用：默认锁定，开关强制修改 -->
@@ -176,8 +184,9 @@
                             android:layout_weight="1"
                             android:insetLeft="0dp"
                             android:insetRight="0dp"
-                            android:paddingStart="4dp"
-                            android:paddingEnd="4dp"
+                            android:paddingStart="2dp"
+                            android:paddingEnd="2dp"
+                            android:textSize="13sp"
                             android:text="@string/mode_off"
                             app:textAllCaps="false" />
 
@@ -189,8 +198,9 @@
                             android:layout_weight="1"
                             android:insetLeft="0dp"
                             android:insetRight="0dp"
-                            android:paddingStart="4dp"
-                            android:paddingEnd="4dp"
+                            android:paddingStart="2dp"
+                            android:paddingEnd="2dp"
+                            android:textSize="13sp"
                             android:text="@string/mode_full"
                             app:textAllCaps="false" />
 
@@ -202,8 +212,9 @@
                             android:layout_weight="1"
                             android:insetLeft="0dp"
                             android:insetRight="0dp"
-                            android:paddingStart="4dp"
-                            android:paddingEnd="4dp"
+                            android:paddingStart="2dp"
+                            android:paddingEnd="2dp"
+                            android:textSize="13sp"
                             android:text="@string/mode_embedding"
                             app:textAllCaps="false" />
 
@@ -215,8 +226,9 @@
                             android:layout_weight="1"
                             android:insetLeft="0dp"
                             android:insetRight="0dp"
-                            android:paddingStart="4dp"
-                            android:paddingEnd="4dp"
+                            android:paddingStart="2dp"
+                            android:paddingEnd="2dp"
+                            android:textSize="13sp"
                             android:text="@string/mode_fixed"
                             app:textAllCaps="false" />
                     </com.google.android.material.button.MaterialButtonToggleGroup>
@@ -275,49 +287,63 @@
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 
+    <!-- 底部操作栏 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="?attr/colorSurface"
-        android:orientation="horizontal"
-        android:paddingStart="@dimen/page_padding"
-        android:paddingTop="8dp"
-        android:paddingEnd="@dimen/page_padding"
-        android:paddingBottom="16dp">
+        android:background="@color/card_bg"
+        android:elevation="8dp"
+        android:orientation="vertical">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnReset"
-            style="?attr/materialButtonOutlinedStyle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/action_reset" />
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/divider" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnImport"
-            style="?attr/materialButtonOutlinedStyle"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_import_rule" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/page_padding"
+            android:paddingTop="10dp"
+            android:paddingEnd="@dimen/page_padding"
+            android:paddingBottom="18dp">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnExport"
-            style="?attr/materialButtonOutlinedStyle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_export_rule" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnReset"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/action_reset" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSave"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="@string/action_save" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnImport"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="@string/action_import_rule" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnExport"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="@string/action_export_rule" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSave"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="@string/action_save" />
+        </LinearLayout>
     </LinearLayout>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

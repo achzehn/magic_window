@@ -13,7 +13,6 @@ object AiSettings {
     private const val KEY_MODEL_ID = "model_id"
     private const val KEY_API_KEY = "api_key"
     private const val KEY_DISPLAY_NAME = "display_name"
-    private const val KEY_MAX_INPUT_TOKENS = "max_input_tokens"
     private const val KEY_MAX_OUTPUT_TOKENS = "max_output_tokens"
     private const val KEY_TOOL_ROUNDS = "tool_rounds"
     private const val KEY_TEMPERATURE = "temperature"
@@ -38,9 +37,6 @@ object AiSettings {
     fun displayName(context: Context): String =
         prefs(context).getString(KEY_DISPLAY_NAME, "") ?: ""
 
-    fun maxInputTokens(context: Context): Int =
-        prefs(context).getInt(KEY_MAX_INPUT_TOKENS, 131072)
-
     fun maxOutputTokens(context: Context): Int =
         prefs(context).getInt(KEY_MAX_OUTPUT_TOKENS, 16384)
 
@@ -58,10 +54,6 @@ object AiSettings {
 
     fun isEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_ENABLED, false)
-
-    /** 是否已配置（有 API 地址和密钥） */
-    fun isConfigured(context: Context): Boolean =
-        apiKey(context).isNotEmpty() && apiBase(context).isNotEmpty() && modelId(context).isNotEmpty()
 
     // ── 写入 ──
 

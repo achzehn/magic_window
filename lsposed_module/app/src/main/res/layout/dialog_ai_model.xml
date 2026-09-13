@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
 
@@ -18,7 +19,7 @@
             android:layout_height="wrap_content"
             android:text="@string/ai_model_basic"
             android:textAppearance="?attr/textAppearanceTitleSmall"
-            android:textColor="?attr/colorPrimary"
+            android:textColor="?attr/colorOnSurface"
             android:layout_marginBottom="8dp" />
 
         <com.google.android.material.textfield.TextInputLayout
@@ -26,7 +27,7 @@
             android:layout_height="wrap_content"
             android:hint="@string/ai_model_api_base_hint"
             android:layout_marginBottom="4dp"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+            style="@style/Widget.MagicWindow.TextInput.Outlined">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etApiBase"
                 android:layout_width="match_parent"
@@ -40,7 +41,7 @@
             android:layout_height="wrap_content"
             android:hint="@string/ai_model_id_hint"
             android:layout_marginBottom="4dp"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+            style="@style/Widget.MagicWindow.TextInput.Outlined">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etModelId"
                 android:layout_width="match_parent"
@@ -53,7 +54,7 @@
             android:layout_height="wrap_content"
             android:hint="@string/ai_model_name_hint"
             android:layout_marginBottom="4dp"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+            style="@style/Widget.MagicWindow.TextInput.Outlined">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etDisplayName"
                 android:layout_width="match_parent"
@@ -67,8 +68,7 @@
             android:hint="@string/ai_model_key_hint"
             android:layout_marginBottom="12dp"
             app:endIconMode="password_toggle"
-            xmlns:app="http://schemas.android.com/apk/res-auto"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+            style="@style/Widget.MagicWindow.TextInput.Outlined">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etApiKey"
                 android:layout_width="match_parent"
@@ -115,7 +115,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/ai_model_tokens"
                 android:textAppearance="?attr/textAppearanceTitleSmall"
-                android:textColor="?attr/colorPrimary"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginBottom="8dp" />
 
             <LinearLayout
@@ -129,7 +129,7 @@
                     android:layout_weight="1"
                     android:hint="输入 Token"
                     android:layout_marginEnd="8dp"
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+                    style="@style/Widget.MagicWindow.TextInput.Outlined">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etMaxInputTokens"
                         android:layout_width="match_parent"
@@ -143,7 +143,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:hint="输出 Token"
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+                    style="@style/Widget.MagicWindow.TextInput.Outlined">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etMaxOutputTokens"
                         android:layout_width="match_parent"
@@ -158,7 +158,7 @@
                 android:layout_height="wrap_content"
                 android:hint="@string/ai_model_tool_rounds"
                 android:layout_marginTop="8dp"
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+                style="@style/Widget.MagicWindow.TextInput.Outlined">
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etToolRounds"
                     android:layout_width="match_parent"
@@ -172,7 +172,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/ai_model_sampling"
                 android:textAppearance="?attr/textAppearanceTitleSmall"
-                android:textColor="?attr/colorPrimary"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_marginTop="16dp"
                 android:layout_marginBottom="8dp" />
 
@@ -181,7 +181,7 @@
                 android:layout_height="wrap_content"
                 android:hint="Temperature"
                 android:layout_marginBottom="4dp"
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+                style="@style/Widget.MagicWindow.TextInput.Outlined">
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etTemperature"
                     android:layout_width="match_parent"
@@ -195,7 +195,7 @@
                 android:layout_height="wrap_content"
                 android:hint="Top P"
                 android:layout_marginBottom="4dp"
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+                style="@style/Widget.MagicWindow.TextInput.Outlined">
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etTopP"
                     android:layout_width="match_parent"
@@ -208,7 +208,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="Top K"
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+                style="@style/Widget.MagicWindow.TextInput.Outlined">
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etTopK"
                     android:layout_width="match_parent"

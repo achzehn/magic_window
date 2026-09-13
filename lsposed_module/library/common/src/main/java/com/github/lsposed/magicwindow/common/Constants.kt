@@ -14,7 +14,6 @@ object Constants {
 
     /** 模块配置文件名（LSPosed `xposedsharedprefs` 托管，system_server 侧用 XSharedPreferences 读） */
     const val PREFS_NAME = "magic_window_config"
-    const val KEY_GLOBAL = "global_config"
     const val KEY_RULES = "app_rules"
 
     // ── 配置热更新通知 ──

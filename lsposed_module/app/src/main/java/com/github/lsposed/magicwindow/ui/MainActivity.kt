@@ -231,7 +231,7 @@ class MainActivity : AppCompatActivity() {
      * 点击/长按 JSON 可复制，另带「复制」按钮。
      */
     private fun showMcpClientJsonDialog() {
-        val json = McpServer.clientConfigJson()
+        val json = McpServer.clientConfigJson(this)
         val jsonView = TextView(this).apply {
             text = json
             typeface = Typeface.MONOSPACE
@@ -272,7 +272,8 @@ class MainActivity : AppCompatActivity() {
             binding.tvAiModelName.setTextColor(resolveThemeColor(android.R.attr.textColorPrimary))
             binding.tvAiModelStatus.text = "已配置"
             binding.tvAiModelStatus.setTextColor(ContextCompat.getColor(this, R.color.ok_green))
-            binding.tvAiModelStatus.setBackgroundColor(ContextCompat.getColor(this, R.color.ok_green_bg))
+            binding.tvAiModelStatus.backgroundTintList =
+                ContextCompat.getColorStateList(this, R.color.ok_green_bg)
         } else {
             // 区分「从未配置」和「模型被全部停用」
             val allDisabled = ModelManager.hasAny(this)
@@ -280,7 +281,7 @@ class MainActivity : AppCompatActivity() {
             binding.tvAiModelName.setTextColor(ContextCompat.getColor(this, R.color.field_en))
             binding.tvAiModelStatus.text = if (allDisabled) "已停用" else "未配置"
             binding.tvAiModelStatus.setTextColor(ContextCompat.getColor(this, R.color.conflict_error))
-            binding.tvAiModelStatus.setBackgroundColor(0)
+            binding.tvAiModelStatus.backgroundTintList = null
         }
     }
 

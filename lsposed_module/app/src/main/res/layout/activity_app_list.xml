@@ -4,23 +4,28 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true">
+    android:fitsSystemWindows="true"
+    android:background="@color/app_bg">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:liftOnScroll="true">
+        android:background="@android:color/transparent"
+        app:liftOnScroll="true"
+        app:liftOnScrollColor="@color/app_bg"
+        app:statusBarForeground="@android:color/transparent">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             app:navigationIcon="@drawable/ic_back"
-            app:title="@string/title_app_list" />
+            app:title="@string/title_app_list"
+            app:titleTextAppearance="@style/Text.MagicWindow.CardTitle" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/searchLayout"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+            style="@style/Widget.MagicWindow.SearchBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="@dimen/page_padding"
@@ -40,6 +45,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingHorizontal="@dimen/page_padding"
+            android:paddingTop="10dp"
+            android:paddingBottom="2dp"
             android:scrollbars="none">
 
             <com.google.android.material.chip.ChipGroup
@@ -52,14 +59,14 @@
 
                 <com.google.android.material.chip.Chip
                     android:id="@+id/chipAll"
-                    style="@style/Widget.Material3.Chip.Filter"
+                    style="@style/Widget.MagicWindow.Chip.Filter"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/filter_all" />
 
                 <com.google.android.material.chip.Chip
                     android:id="@+id/chipConfigured"
-                    style="@style/Widget.Material3.Chip.Filter"
+                    style="@style/Widget.MagicWindow.Chip.Filter"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:checked="true"
@@ -67,21 +74,21 @@
 
                 <com.google.android.material.chip.Chip
                     android:id="@+id/chipDisabled"
-                    style="@style/Widget.Material3.Chip.Filter"
+                    style="@style/Widget.MagicWindow.Chip.Filter"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/filter_disabled" />
 
                 <com.google.android.material.chip.Chip
                     android:id="@+id/chipUser"
-                    style="@style/Widget.Material3.Chip.Filter"
+                    style="@style/Widget.MagicWindow.Chip.Filter"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/filter_user" />
 
                 <com.google.android.material.chip.Chip
                     android:id="@+id/chipSystem"
-                    style="@style/Widget.Material3.Chip.Filter"
+                    style="@style/Widget.MagicWindow.Chip.Filter"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/filter_system" />
@@ -94,6 +101,8 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:clipToPadding="false"
+        android:paddingHorizontal="@dimen/list_edge"
+        android:paddingTop="4dp"
         android:paddingBottom="160dp"
         app:layout_behavior="@string/appbar_scrolling_view_behavior" />
 
@@ -109,10 +118,11 @@
         style="@style/Widget.MagicWindow.Card"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_margin="@dimen/page_padding"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginHorizontal="@dimen/page_padding"
+        android:layout_marginBottom="16dp"
         android:visibility="gone"
-        app:cardElevation="6dp">
+        app:cardElevation="8dp">
 
         <LinearLayout
             android:layout_width="match_parent"

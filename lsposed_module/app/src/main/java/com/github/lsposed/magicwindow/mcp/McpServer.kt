@@ -131,9 +131,9 @@ object McpServer {
      *   magic-window-claude-desktop → Claude Desktop 等不支持 headers 字段的客户端，走 mcp-remote 中转
      * 令牌为空时不带鉴权头。
      */
-    fun clientConfigJson(): String {
+    fun clientConfigJson(context: Context): String {
         val lan = localUrl()
-        val auth = "Bearer ${token(appContext)}"
+        val auth = "Bearer ${token(context.applicationContext)}"
         val direct = JSONObject().put("url", lan)
         if (auth != "Bearer ") direct.put("headers", JSONObject().put("Authorization", auth))
         val args = JSONArray().put("-y").put("mcp-remote").put(lan)

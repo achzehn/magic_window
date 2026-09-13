@@ -204,7 +204,7 @@ XposedEntry.handleLoadPackage("android")
 
 | 文件 | 职责 |
 |------|------|
-| `MagicWindowApp.kt` | Application：初始化 `ConfigRepository`、应用 DynamicColors、后台预热 `SystemRuleSource` |
+| `MagicWindowApp.kt` | Application：初始化 `ConfigRepository`、后台预热 `SystemRuleSource`（v2.3.0 起移除 DynamicColors，固定使用品牌色板） |
 | `ModuleStatus.kt` | 激活状态探针：`isModuleActive()` 默认返回 false，被 Xposed hook 成返回 true |
 | **ui/** | |
 | `MainActivity.kt` (322行) | 主界面：模块状态显示、应用列表入口、MCP 服务器开关/配置（端口/令牌/客户端 JSON）、隐藏桌面图标、配置导入导出 |
@@ -221,6 +221,15 @@ XposedEntry.handleLoadPackage("android")
 | `ConfigExporter.kt` | 配置导入导出（version 1/2 兼容），支持 v1 的 `globalConfig` 字段兼容 |
 | **mcp/** | |
 | `McpServer.kt` (442行) | 内置 MCP 调试服务器（Streamable-HTTP JSON-RPC 2.0），提供 8 个工具：`list_rules` / `get_rule` / `set_rule` / `delete_rule` / `get_system_rule` / `search_apps` / `list_activities` / `export_rules`。支持令牌鉴权、端口配置、客户端配置 JSON 生成 |
+
+**界面设计体系（HyperOS 4 风格，v2.3.0 起）：**
+
+- 主题 `Theme.MagicWindow`（Material3 DayNight）：浅/暗色双套语义色板（`values/colors.xml` + `values-night/colors.xml`），品牌蓝 `#2F6BFF`；页面底色 `@color/app_bg`（浅灰 `#F3F4F7`/深黑 `#0B0E12`），卡片 `@color/card_bg`（白/深灰），零投影 + 22dp 大圆角（`Widget.MagicWindow.Card`）。
+- 组件样式集中在 `values/themes.xml`：按钮 14dp 圆角不全大写、FAB 18dp 圆角方形、筛选 Chip 12dp 圆角无描边（选中=primaryContainer）、描边输入框 14dp 圆角、搜索框灰色胶囊（`Widget.MagicWindow.SearchBar`）、大标题 26sp bold（`TextAppearance.MagicWindow.LargeTitle`）。
+- 手机/平板适配全部走资源限定符，无额外代码分支：
+  - `values-sw600dp/`、`values-sw840dp/`：`page_padding` 加宽（16→56→128dp）使内容居中收窄；`integers.xml` 的 `list_columns`（1/2/3）驱动应用列表在平板上变为卡片网格（`AppListActivity` 按列数切换 `GridLayoutManager`，列表项背景 `drawable-sw600dp/bg_app_item.xml` 变为白色圆角卡片）；
+  - AI 聊天气泡最大宽度 `chat_bubble_user/ai` 随屏宽放大；
+  - 应用图标统一通过 `bg_icon_mask.xml` + `clipToOutline` 裁成圆角。
 
 ---
 
@@ -496,6 +505,10 @@ xposed_scope = ["android", "com.github.lsposed.magicwindow"]
 
 **不需要勾选任何被适配的应用**——所有注入都发生在 `system_server` 里。
 
+**双轨声明（v2.3.0 起，参考 HyperCeiler-lite 写法）**：除上述 legacy 声明外，还打包了新版 libxposed 格式的 `META-INF/xposed/scope.list`（源文件在 `app/src/main/resources/META-INF/xposed/`，内容为 `system` + 模块自身），供读取 scope.list 的新版管理器（LSPosed_mod/Vector 等）识别推荐作用域。注意：
+- 本模块是**经典 API 模块**，`META-INF/xposed/` 下**严禁添加 `java_init.list` / `module.prop`**——加了会被 LSPosed 识别为新版模块并走 libxposed 加载路径，经典入口（`assets/xposed_init` → `hook.XposedEntry`）将失效
+- 官方 LSPosed 对经典模块只读 Manifest meta-data，不受 scope.list 影响
+
 ---
 
 ## 13. 已知限制与风险
@@ -596,3 +609,17 @@ xposed_scope = ["android", "com.github.lsposed.magicwindow"]
 | `app/src/main/res/layout/item_page_picker.xml` | 页面抓取列表项（类名+中文说明+标签） |
 
 **生命周期：** 全部 Activity 在 `AndroidManifest.xml` 声明 `configChanges`（orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden），旋转不重建页面，兼顾手机与平板。
+
+### v2.3.0（2026-09-13）— HyperOS 4 风格界面改版 + 手机/平板适配
+
+**设计系统（纯 View/XML，无 Compose 依赖）：**
+
+1. **主题与配色**：`values/themes.xml` 重写 `Theme.MagicWindow`，映射全套 M3 语义色到自定义色板；新增 `values-night/colors.xml` 暗色版（品牌蓝降饱和、模式标签改浅色配深字）。页面灰底白卡、系统栏透明边到边、`app_bg` 色贯穿 AppBar/底栏/输入栏。`MagicWindowApp` 移除 `DynamicColors.applyToActivitiesIfAvailable`，Android 12+ 也固定品牌蓝。
+2. **组件 HyperOS 化**：卡片 22dp 圆角零投影；按钮 14dp 圆角、不全大写；筛选 Chip 12dp 圆角无描边（颜色选择器 `color/chip_filter_*.xml`）；搜索框改灰色胶囊填充；FAB 改 18dp 圆角方形；新增自定义矢量图标（`ic_sparkle/ic_send/ic_add/ic_tune/ic_apps/ic_shield_check/ic_bolt/ic_chevron_down`）替换系统框架图标；主界面四张卡片加彩色（蓝/绿/紫/琥珀）圆角图标容器；AI 聊天用户气泡改品牌蓝、AI 头像改 sparkle 容器、输入框圆角胶囊。
+3. **手机/平板适配**：
+   - `values-sw600dp/`（7 寸）：`page_padding=56dp`，应用列表 2 列卡片网格；
+   - `values-sw840dp/`（10 寸）：`page_padding=128dp`，应用列表 3 列；
+   - `AppListActivity` 读取 `R.integer.list_columns` 在 `LinearLayoutManager`/`GridLayoutManager` 间切换；列表项背景按限定符在「通栏水波纹」与「18dp 圆角白卡」（`drawable-sw600dp/bg_app_item.xml`）间切换；
+   - AI 聊天气泡宽度、输入栏/消息列表边距随屏宽放大。
+4. **细节**：应用图标 `bg_icon_mask.xml` + `clipToOutline` 统一圆角（列表 11dp、详情 48dp 图标）；详情底部操作栏加分隔线与 8dp 投影；滑块行改为内嵌 16dp 圆角填充卡；模型状态「已配置」标签改圆角 pill（`bg_pill.xml`，`MainActivity` 用 `backgroundTintList` 着色而非 `setBackgroundColor`）；AI 模型对话框全部输入框继承新圆角样式。
+5. **Bug 修复**：MCP 未启动时点「客户端配置 JSON」闪退（`UninitializedPropertyAccessException: appContext`，`McpServer.clientConfigJson()` 依赖仅在 `start()` 里初始化的 lateinit 字段）。改为 `clientConfigJson(context)` 由调用方传入 Activity Context 读取令牌；`localUrl()`/`curPort()` 本就无需实例上下文，不受影响。

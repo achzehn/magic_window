@@ -7,6 +7,7 @@ import android.view.MenuItem
 import android.view.View
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.github.lsposed.magicwindow.R
 import com.github.lsposed.magicwindow.common.model.WindowMode
@@ -46,7 +47,13 @@ class AppListActivity : AppCompatActivity() {
             onLongClick = { enterSelection(it) },
             onToggle = { toggle(it) }
         )
-        binding.recycler.layoutManager = LinearLayoutManager(this)
+        // 手机单列列表；平板（sw600dp+）自动切换为 2~3 列卡片网格
+        val columns = resources.getInteger(R.integer.list_columns)
+        binding.recycler.layoutManager = if (columns > 1) {
+            GridLayoutManager(this, columns)
+        } else {
+            LinearLayoutManager(this)
+        }
         binding.recycler.setHasFixedSize(true)
         binding.recycler.setItemViewCacheSize(20)
         binding.recycler.adapter = adapter

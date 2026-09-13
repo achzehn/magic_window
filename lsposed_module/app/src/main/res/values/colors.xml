@@ -1,15 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="conflict_error">#B3261E</color>
-    <color name="ok_green">#1B6B3A</color>
-    <color name="ok_green_bg">#1A1B6B3A</color>
+    <!-- ===== HyperOS 风格品牌色（浅色） ===== -->
+    <color name="brand_primary">#2F6BFF</color>
+    <color name="brand_on_primary">#FFFFFF</color>
+    <color name="brand_primary_container">#E4ECFF</color>
+    <color name="brand_on_primary_container">#0A2E80</color>
+
+    <color name="brand_secondary">#535F71</color>
+    <color name="brand_on_secondary">#FFFFFF</color>
+    <color name="brand_secondary_container">#E7EDF6</color>
+    <color name="brand_on_secondary_container">#2D3642</color>
+
+    <!-- 页面 / 卡片 -->
+    <color name="app_bg">#F3F4F7</color>
+    <color name="card_bg">#FFFFFF</color>
+    <color name="card_bg_high">#F2F4F8</color>
+    <color name="divider">#E4E7ED</color>
+
+    <!-- 文字 -->
+    <color name="text_primary">#1A1D21</color>
+    <color name="text_secondary">#626873</color>
+
+    <!-- ===== 功能色 ===== -->
+    <color name="conflict_error">#C02B1F</color>
+    <color name="ok_green">#1B7A43</color>
+    <color name="ok_green_bg">#1F1B7A43</color>
 
     <!-- 模式标签：颜色深浅对应优先级 固定横屏 &gt; 平行窗口 &gt; 通用全屏 -->
-    <color name="mode_full">#4A6572</color>
-    <color name="mode_embedding">#1B6B3A</color>
-    <color name="mode_fixed">#8A4B00</color>
+    <color name="mode_full">#3E5C76</color>
+    <color name="mode_embedding">#1B7A43</color>
+    <color name="mode_fixed">#B25E09</color>
     <color name="mode_chip_text">#FFFFFF</color>
 
     <!-- 标签里的英文属性名（灰色小字），深浅色模式下均可辨识 -->
-    <color name="field_en">#8C8C8C</color>
+    <color name="field_en">#8A919C</color>
+
+    <!-- ===== 彩色图标容器（浅色） ===== -->
+    <color name="container_blue">#E4ECFF</color>
+    <color name="on_container_blue">#2F5BD8</color>
+    <color name="container_green">#DFF5E7</color>
+    <color name="on_container_green">#1B7A43</color>
+    <color name="container_purple">#EFE7FF</color>
+    <color name="on_container_purple">#5B3FC4</color>
+    <color name="container_amber">#FFF0DE</color>
+    <color name="on_container_amber">#C2610C</color>
 </resources>

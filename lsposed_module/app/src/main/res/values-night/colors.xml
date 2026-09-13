@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ===== HyperOS 风格品牌色（暗色） ===== -->
+    <color name="brand_primary">#9FBDFF</color>
+    <color name="brand_on_primary">#0B2E6E</color>
+    <color name="brand_primary_container">#27447E</color>
+    <color name="brand_on_primary_container">#DCE6FF</color>
+
+    <color name="brand_secondary">#BEC8DC</color>
+    <color name="brand_on_secondary">#283241</color>
+    <color name="brand_secondary_container">#3A4456</color>
+    <color name="brand_on_secondary_container">#DBE2F0</color>
+
+    <!-- 页面 / 卡片 -->
+    <color name="app_bg">#0B0E12</color>
+    <color name="card_bg">#171B21</color>
+    <color name="card_bg_high">#222831</color>
+    <color name="divider">#282E37</color>
+
+    <!-- 文字 -->
+    <color name="text_primary">#E8EBEF</color>
+    <color name="text_secondary">#A4ABB6</color>
+
+    <!-- ===== 功能色 ===== -->
+    <color name="conflict_error">#FFB4AB</color>
+    <color name="ok_green">#7ED8A0</color>
+    <color name="ok_green_bg">#334CAF50</color>
+
+    <!-- 模式标签：暗色下降饱和度、配深色文字 -->
+    <color name="mode_full">#8AA8BF</color>
+    <color name="mode_embedding">#7ED8A0</color>
+    <color name="mode_fixed">#FFB871</color>
+    <color name="mode_chip_text">#141A20</color>
+
+    <color name="field_en">#98A0AC</color>
+
+    <!-- ===== 彩色图标容器（暗色） ===== -->
+    <color name="container_blue">#2A3A5C</color>
+    <color name="on_container_blue">#B8CCFF</color>
+    <color name="container_green">#1F3D2D</color>
+    <color name="on_container_green">#9BE0B4</color>
+    <color name="container_purple">#332A52</color>
+    <color name="on_container_purple">#CDBBFF</color>
+    <color name="container_amber">#4A3017</color>
+    <color name="on_container_amber">#FFD3A6</color>
+</resources>
