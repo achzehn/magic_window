@@ -26,6 +26,9 @@ magic_window/
 ├── 完美横屏_使用文档.md                 # 完整用户使用文档
 ├── 完美横屏_LSPosed实现资料评估.md      # 反编译分析与技术方案评估
 ├── LICENSE                            # Apache 2.0
+├── tmp/
+│   ├── AI适配指导文档.md               # ★ AI 智能体适配规则生成指导（6 个 XML 文件 Schema + 模板）
+│   └── 参考/                           # 真机提取的规则参考文件
 │
 └── lsposed_module/                    # Android 工程根目录
     ├── build.gradle.kts               # 根构建脚本（声明插件）
@@ -420,6 +423,8 @@ app ──→ library:common
 
 ## 8. 系统规则文件
 
+> **AI 适配详细 Schema 与模板请参阅** `tmp/AI适配指导文档.md`，包含 6 个 XML 文件的完整属性字典、格式规范、常见场景模板和排错指南。
+
 ### 8.1 文件位置
 
 | 类型 | 云控目录 | 本地目录 |
@@ -601,8 +606,8 @@ xposed_scope = ["android", "com.github.lsposed.magicwindow"]
 | `app/.../ai/AiClient.kt` | OpenAI 兼容客户端，多轮 function calling + 连通性测试 |
 | `app/.../ai/AiChatActivity.kt` | Kimi 风格 AI 对话页（附件/历史/全局切模型） |
 | `app/.../ai/ChatHistory.kt` | 聊天历史持久化 |
-| `app/.../ai/AiSystemPrompt.kt` | AI 系统提示词（四模式规则说明） |
-| `app/.../ai/AiToolExecutor.kt` | 7 个规则读写工具执行器 |
+| `app/.../ai/AiSystemPrompt.kt` | AI 系统提示词（四模式+autoui 叠加说明） |
+| `app/.../ai/AiToolExecutor.kt` | 7 个规则读写工具执行器（set_app_rule 含 17 个参数） |
 | `app/.../data/ActivityLabelCache.kt` | Activity 中文说明缓存（按包名） |
 | `app/src/main/res/layout/dialog_ai_model.xml` | 模型配置对话框（基础+高级折叠+测试） |
 | `app/src/main/res/layout/activity_ai_chat.xml` | AI 对话页布局 |
@@ -668,3 +673,126 @@ xposed_scope = ["android", "com.github.lsposed.magicwindow"]
 - 完成正式版签名密钥生成（`magicwindow.keystore`）
 - 成功构建 Release APK：`app-release.apk`（10.9 MB，versionCode 2，versionName 2.0.0）
 - 构建路径：`lsposed_module/app/build/outputs/apk/release/app-release.apk`
+
+---
+
+### v2.4.1（2026-09-14）— AI 工具参数对齐适配指导文档
+
+依据 `tmp/AI适配指导文档.md` 的规则体系审计结果，补齐 AI 助手能力缺口：
+
+1. **`set_app_rule` 工具参数扩展**（`AiToolExecutor.kt`）：从 6 个可选参数扩至 16 个，新增：
+   - embedding：`placeholder`（右栏占位页）、`transition_rules`（过渡页）、`support_full_size`、`is_show_divider`
+   - fixed：`fo_support_modes`、`fo_ratio`、`fo_force_portrait_activity`
+   - autoui（叠加在任意模式上）：`autoui_enable`、`autoui_activity_rule`、`autoui_skipped_activity_rule`
+   - 布尔参数仅在 AI 显式传入时覆盖（`args.has()` 判断），避免悄悄改掉既有配置
+
+2. **系统提示词补全**（`AiSystemPrompt.kt`）：
+   - 新增「界面适配（autoui）— 叠加增强，不是独立模式」章节（参数格式、模式码 1/2/6、通配符 `*:1` 用法）
+   - embedding 关键参数补充 `transitionRules` 说明
+   - 新增「高级参数说明」：明确 flags/procCompat/minSupportVersion 等不在工具支持范围，引导用户到应用详情页高级模式手动设置，禁止 AI 编造参数值
+
+3. **审计结论（无代码缺陷项）**：
+   - autoui 云控注入走 `AutoUiCloudInjector` 反射路径（构造系统 `PackageRule` 对象 + `updateAutoUICloudConfigFile`），`RuleStore.autoUiRules()` 已按 `autoUiEnable` 过滤，`CloudXmlCodec` 无需 autoui 序列化方法
+   - `embedded_setting_config.xml` 的三个互斥开关由 `WindowMode` 枚举 + `fullScreenAttrsOf`（fullRule 占位）+ hook 查询接口覆盖，为既定架构设计，不改动
+
+**修改文件：**
+
+| 文件 | 变更 |
+|------|------|
+| `app/.../ai/AiToolExecutor.kt` | `set_app_rule` 工具定义与实现扩展 10 个参数 |
+| `app/.../ai/AiSystemPrompt.kt` | 新增 autoui 章节 + transitionRules + 高级参数引导 |
+
+**真机 XML 交叉验证后追加修正（同日第二轮审计）：**
+
+以 `tmp/参考/` 真机规则文件逐条核对 AI 推荐内容，发现并修正 4 处不一致：
+
+1. **指导文档 §3.1 `activityRule` 格式纠错**：原写成「`类名:模式码` + 分号分隔」，真机 embedded 数据（8000+ 条）实际为**逗号分隔的纯 Activity 全类名列表**，不带模式码；「模式码 + 分号」格式属于 autoui（§3.3），文档已修正并加防混淆警告。§11 模式码表同步标注"仅 autoui 使用"。
+2. **`forcePortraitActivity` 真实格式补全**（文档 §3.1/§3.2 + AI 工具 + 提示词）：真机 20/20 样本均为 `包名/类名`（`/` 分隔，`/` 右侧可 `.相对类名`），多个逗号分隔，**不是**纯全类名，fixed 侧不带 `:1` 后缀。注意：`AppDetailActivity` 高级模式的 embedding 侧 `forcePortraitActivity` 输入框（Fill.LIST 抓取生成纯全类名逗号列表）与真机格式不符，属遗留问题待后续核对。
+3. **提示词场景矛盾修复**：原推荐「京东→平行窗口」与文档「京东已自带适配」冲突，已将京东移出推荐并明确禁止；已适配示例扩为 微信/微博/酷安。
+4. **fullRule 禁忌写入提示词与工具描述**：embedding 模式设置 fullRule 会被系统判定为「支持全屏、不支持平行窗口」（`CloudXmlCodec.embeddingAttrsOf` 注释约束），平行窗口章节与 `full_rule` 参数描述均已加⚠️警告。
+
+**修改文件（第二轮）：**
+
+| 文件 | 变更 |
+|------|------|
+| `tmp/AI适配指导文档.md` | §3.1 activityRule 纠错、forcePortraitActivity 格式规范新增、§3.2 fixed 侧格式、§10 排错表 +2 行、§11 模式码标注 |
+| `app/.../ai/AiToolExecutor.kt` | `activity_rule`/`force_portrait_activity`/`fo_force_portrait_activity` 格式说明、`full_rule` 警告 |
+| `app/.../ai/AiSystemPrompt.kt` | activityRule 防混淆、forcePortrait 格式、fullRule 禁忌、京东场景矛盾修复 |
+
+**forcePortraitActivity 格式遗留问题修复（同日第三轮）：**
+
+修复第二轮审计指出的 UI 层遗留问题——`forcePortraitActivity` 系列字段抓取生成**纯全类名**逗号列表，与真机要求的「包名/类名」格式不符：
+
+1. **新增 `Fill.PKG_CLASS` 抓取类型**（`AppDetailActivity`）：
+   - 输出转换：抓取的 Activity 全类名转成「包名/类名」，类名以包名为前缀时缩写为 `.相对类名`（`com.pkg/.ui.ScanActivity`），与系统内置规则写法一致；否则写 `包名/全类名`
+   - 回显还原：打开抓取器时把已有值还原成全类名比对勾选状态，兼容三种历史格式（`.相对类名`、`包名/全类名`、纯全类名）——**旧格式规则重新抓取保存一次即自动转换为新格式**
+   - 新增 helper：`toPkgClassForm()`（输出）、`flattenPkgClass()`（回显）
+2. **三个字段切换到 PKG_CLASS 并更新提示**：embedding `forcePortraitActivity`、fixed `foForcePortraitActivity`、fixed `foFullForcePortraitActivity`（真机 6/6 样本确认同为包名/类名格式）
+3. **`foAdjustmentOrientationActivity` 保持不动**：真机参考数据中零样本，"包名/类名:1" 提示格式无从验证
+
+### v2.4.2（2026-09-14）— AI/MCP 调试工具统一 + 闪退定位 + MCP 性能优化
+
+#### 1. 共享诊断模块 `data/RuleDiagnostics.kt`（新建）
+
+AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug 逻辑，保证两侧工具**同名同义同实现**：
+
+- `validate()`：规则格式逐条校验（分隔符、`包名/类名` 格式、splitRatio 范围、placeholder 冒号左侧必须是主页面、模式互斥、页面类名存在性、autoui 模式码），返回 error/warning/info 三级问题列表
+- `diagnose()`：综合诊断 = 模块规则 + 系统内置规则 + 校验结果 + 互斥冲突（固定横屏>平行窗口覆盖、autoui 内置名单、SystemRuleSource 未加载告警），输出 `valid` 总判定
+- `moduleStatus()`：模块版本、规则统计、`SystemRuleSource.loaded/rootAvailable/errorMessage`（root/加载问题排查入口）
+- `crashReport()`：**应用闪退定位**——通过 su 读取 crash 缓冲区（`logcat -d -b crash -t 400`），按包名过滤崩溃事件，自动分析：ClassNotFoundException 的崩溃类与规则字段比对（直接指出哪个字段写错）、Miui 嵌入层堆栈命中提示（先删规则验证）、Resources$NotFoundException 提示（关 autoui）
+
+**su 安全边界（强制）**：`runSu()` 实施只读命令白名单（`SU_READ_ONLY_WHITELIST`，当前仅一条 logcat 只读命令）；外部输入（包名等）永不拼入 shell 命令行，仅用于本地正则比对且做 `Regex.escape` 转义；超时 10s；失败静默返回。绝不允许执行写入/删除/权限修改/挂载等任何有副作用操作。
+
+#### 2. 工具清单统一（两侧各 13 个，完全同名）
+
+`search_apps / get_app_activities / get_current_rules / get_app_rule / set_app_rule / delete_app_rule / get_system_rules / validate_rule / diagnose_app / get_crash_log / launch_app / export_rules / get_module_status`
+
+- **MCP 工具更名**（破坏性）：`list_rules→get_current_rules`、`get_rule→get_app_rule`、`set_rule→set_app_rule`、`delete_rule→delete_app_rule`、`get_system_rule→get_system_rules`、`list_activities→get_app_activities`
+- MCP `set_app_rule` 改为与 AI 侧一致的**扁平 snake_case 参数**（布尔仅显式传入时覆盖），旧版 `rule` 对象整体覆盖方式保留兼容
+- 新增：`validate_rule / diagnose_app / get_crash_log / launch_app / export_rules / get_module_status`
+
+#### 3. MCP 连接性能优化
+
+- **`tcpNoDelay = true`**：禁用 Nagle，消除「小包+延迟 ACK」数百毫秒卡顿（主要延迟源）
+- **HTTP/1.1 keep-alive**：同一连接循环处理多请求，客户端（mcp-remote 等）免于每请求重新 TCP 握手；空闲 5 分钟自动断开（`soTimeout`）
+- **header+body 单次写出**：分两次 write 会触发 Nagle/延迟 ACK 互等
+- **应用列表缓存 60s**：`getInstalledApplications` 在应用多时耗时数百毫秒
+
+#### 4. AI 系统提示词
+
+新增「规则不生效时的排错流程」「应用闪退时的排查流程」两节 debug 工作流与排错速查，工作流增加第 6/7 步（保存后 validate_rule → launch_app 实测闭环）。
+
+**修改文件：**
+
+| 文件 | 变更 |
+|------|------|
+| `app/.../data/RuleDiagnostics.kt` | 新建：共享校验/诊断/闪退定位/su 白名单 |
+| `app/.../ai/AiToolExecutor.kt` | 新增 6 个调试工具定义与实现 |
+| `app/.../ai/AiSystemPrompt.kt` | debug 工作流 + 闪退排查流程 |
+| `app/.../mcp/McpServer.kt` | 工具更名对齐 + 扁平参数 + keep-alive/tcpNoDelay/缓存 + get_crash_log |
+
+#### 5. 客户端配置 JSON 重复工具修复（追加）
+
+`McpServer.clientConfigJson()` 原先输出 `magic-window` + `magic-window-claude-desktop` 两个条目，整段粘贴到客户端会把全部工具**重复注册两份**。已改为只输出一个 HTTP 直连条目；Claude Desktop 等不支持 headers 的客户端在对话框提示中说明 mcp-remote 手动替换写法（`strings.xml` 的 `mcp_json_hint` 同步更新）。
+
+#### 6. 真机 MCP 冒烟测试与追加修复（同日第四轮，v2.4.2 内）
+
+正式版安装到 pad（`19429f2d`）后通过 MCP 客户端对全部 13 个工具实测：
+
+| 工具 | 结果 |
+|------|------|
+| get_module_status | ✅ v2.0.0 / 6 规则 / system_rules_loaded=true（无 root 时走 /product/etc 兜底） |
+| get_current_rules / search_apps / get_app_activities | ✅（应用列表缓存生效） |
+| set_app_rule（扁平参数） | ✅ 新建+局部更新均正常 |
+| validate_rule | ✅ 正确检出「forcePortraitActivity 缺包名/类名格式」error，修正后 error 消失 |
+| diagnose_app | ✅ issues/conflicts/valid 结构完整 |
+| delete_app_rule | ✅ 测试数据已清理 |
+| get_crash_log | ✅ 无 root 时优雅降级（提示原因，不报错） |
+| export_rules / launch_app | ✅ 导出 JSON 落盘 / 启动应用成功 |
+
+**测试暴露并修复的 2 个问题：**
+
+1. **validate 的 fullRule 误报（RuleDiagnostics）**：AppRule 默认 `fullRule = "nra:cr:rcr:nr"`（非空默认值），导致所有新建 embedding 规则都被判 error。实际 `CloudXmlCodec.embeddingAttrsOf` 根本不写 fullRule（仅 fullScreen 模式写），无真实风险——降为 warning 并更正语义。
+2. **MCP 长连接协议错位（McpServer.serve）**：请求体用单次 `reader.read(buf)` 读取，TCP 分段时读不满 contentLength，残留字节被误当下一个请求解析 → 间歇性 `list tools failed` 断连。改为循环读满后再处理。
+
+注：pad 未 root（root_available=false），get_crash_log 的 su 白名单链路需在 root 设备上验证。

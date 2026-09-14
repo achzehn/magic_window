@@ -87,7 +87,7 @@ class AppDetailActivity : AppCompatActivity() {
     private val fieldViews = linkedMapOf<String, View>()
 
     /** 页面类名字段的填充方式：LIST 逗号并列；PAIR 写成「页面:*」配对 */
-    private enum class Fill { LIST, PAIR, PLACEHOLDER }
+    private enum class Fill { LIST, PAIR, PLACEHOLDER, PKG_CLASS }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -484,7 +484,7 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.transitionRules = it }
         txt(
             body, "forcePortraitActivity", "始终竖着显示的页面", "forcePortraitActivity",
-            rule.forcePortraitActivity, "这些页面不参与分屏", Fill.LIST
+            rule.forcePortraitActivity, "格式 包名/类名，如 com.example.app/.ui.ScanActivity；多个用逗号隔开，可抓取", Fill.PKG_CLASS
         ) { rule.forcePortraitActivity = it }
 
         UiKit.note(body, getString(R.string.group_layout))
@@ -683,12 +683,12 @@ class AppDetailActivity : AppCompatActivity() {
         ) { rule.foCompatChange = it }
         txt(
             body, "foForcePortraitActivity", "始终竖着显示的页面", "forcePortraitActivity",
-            rule.foForcePortraitActivity, "多个用英文逗号隔开", Fill.LIST
+            rule.foForcePortraitActivity, "格式 包名/类名，如 com.example.app/.ui.CameraActivity；多个用逗号隔开，可抓取", Fill.PKG_CLASS
         ) { rule.foForcePortraitActivity = it }
         txt(
             body, "foFullForcePortraitActivity", "全屏档下仍竖着显示的页面",
             "fullForcePortraitActivity", rule.foFullForcePortraitActivity,
-            "只在全屏拉伸档生效", Fill.LIST
+            "格式 包名/类名，只在全屏拉伸档生效；可抓取", Fill.PKG_CLASS
         ) { rule.foFullForcePortraitActivity = it }
 
         UiKit.note(body, getString(R.string.group_advanced))
@@ -854,7 +854,14 @@ class AppDetailActivity : AppCompatActivity() {
             .sortedWith(compareByDescending<Item> { it.isMain }.thenBy { it.name })
 
         val currentItems = current.split(',', ';')
-            .map { it.trim().let { s -> if (fill == Fill.PAIR) s.substringBefore(':') else s } }
+            .map { it.trim().let { s ->
+                when (fill) {
+                    Fill.PAIR -> s.substringBefore(':')
+                    // 「包名/类名」还原成全类名再与列表比对（兼容 .相对类名与纯全类名两种历史格式）
+                    Fill.PKG_CLASS -> flattenPkgClass(s)
+                    else -> s
+                }
+            } }
             .filter { it.isNotEmpty() }
             .toSet()
         val checkedMap = HashMap<String, Boolean>()
@@ -1163,6 +1170,8 @@ class AppDetailActivity : AppCompatActivity() {
                     when (fill) {
                         Fill.PAIR -> picked.joinToString(",") { "$it:*" }
                         Fill.LIST -> picked.joinToString(",")
+                        // 系统规则要求「包名/类名」格式（ComponentName 风格），与内置规则一致
+                        Fill.PKG_CLASS -> picked.joinToString(",") { toPkgClassForm(it) }
                         // PLACEHOLDER 已在函数入口分流到专用选择器
                         Fill.PLACEHOLDER -> picked.joinToString(",")
                     }
@@ -1175,6 +1184,26 @@ class AppDetailActivity : AppCompatActivity() {
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
+
+    /**
+     * 把「包名/类名」形式的值还原成全类名，用于与 Activity 列表比对勾选状态。
+     * 兼容三种历史格式：`com.pkg/.ui.Act`（.相对类名）、`com.pkg/com.pkg.ui.Act`（全限定）、纯全类名。
+     */
+    private fun flattenPkgClass(value: String): String =
+        if ('/' in value) {
+            val p = value.substringBefore('/')
+            val c = value.substringAfter('/').removePrefix(".")
+            "$p.$c"
+        } else value
+
+    /**
+     * 把抓取到的 Activity 全类名转成系统规则要求的「包名/类名」格式。
+     * 类名以包名为前缀时缩写为 `.相对类名`（与系统内置规则的写法一致），
+     * 否则使用 `包名/全类名`。
+     */
+    private fun toPkgClassForm(fullName: String): String =
+        if (fullName.startsWith("$pkg.")) "$pkg/." + fullName.removePrefix("$pkg.")
+        else "$pkg/$fullName"
 
     /**
      * placeholder 专用选择器：分别单选「主页面（左栏）」和「占位页面（右栏默认页）」，

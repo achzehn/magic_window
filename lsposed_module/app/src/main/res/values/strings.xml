@@ -107,7 +107,7 @@
     <string name="mcp_action_save">保存</string>
     <string name="mcp_btn_client_json">客户端配置 JSON</string>
     <string name="mcp_json_title">MCP 客户端接入配置</string>
-    <string name="mcp_json_hint">两种方式二选一粘贴：magic-window 用于 Trae / Cursor / Cline 等；magic-window-claude-desktop 用于 Claude Desktop。</string>
+    <string name="mcp_json_hint">整段粘贴到 MCP 客户端即可（只含一个服务器条目，避免重复注册工具）。Claude Desktop 等不支持 headers 的客户端：把该条目换成 { "command": "npx", "args": ["-y", "mcp-remote", "此处填局域网URL", "--header", "Bearer 此处填令牌"] }。</string>
     <string name="action_copy">复制</string>
     <string name="action_close">关闭</string>
 
