@@ -9,7 +9,9 @@ import android.content.pm.PackageManager
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Bundle
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.Menu
@@ -35,7 +37,6 @@ import kotlinx.coroutines.launch
 import com.github.lsposed.magicwindow.ModuleStatus
 import com.github.lsposed.magicwindow.R
 import com.github.lsposed.magicwindow.ai.AiChatActivity
-import com.github.lsposed.magicwindow.ai.AiSettings
 import com.github.lsposed.magicwindow.data.ConfigExporter
 import com.github.lsposed.magicwindow.data.ConfigRepository
 import com.github.lsposed.magicwindow.data.SystemRuleSource
@@ -316,8 +317,8 @@ class MainActivity : AppCompatActivity() {
         val btnAdvanced = view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAdvanced)
         val layoutAdvanced = view.findViewById<LinearLayout>(R.id.layoutAdvanced)
 
-        // 填入当前配置
-        val model = editModel ?: ModelManager.getCurrent(this)
+        // 填入配置：仅编辑已有模型时回填；editModel 为 null 表示新增，留空表单
+        val model = editModel
         if (model != null) {
             etApiBase.setText(model.apiBase)
             etModelId.setText(model.modelId)
@@ -342,13 +343,34 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 测试连通性
+        // 连通性测试门禁：记录测试通过时的连接三元组；任一字段改动即失效，保存前强制重测
         val client = AiClient(this)
+        var testedTriple: Triple<String, String, String>? = null
+        fun currentTriple() = Triple(
+            etApiBase.text.toString().trim(),
+            etModelId.text.toString().trim(),
+            etApiKey.text.toString().trim()
+        )
+        val changedWatcher = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                if (testedTriple != null) {
+                    testedTriple = null
+                    if (tvTestResult.visibility == View.VISIBLE) {
+                        tvTestResult.text = getString(R.string.ai_model_test_changed)
+                        tvTestResult.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.field_en))
+                    }
+                }
+            }
+        }
+        etApiBase.addTextChangedListener(changedWatcher)
+        etModelId.addTextChangedListener(changedWatcher)
+        etApiKey.addTextChangedListener(changedWatcher)
+
         btnTest.setOnClickListener {
-            val base = etApiBase.text.toString().trim()
-            val mId = etModelId.text.toString().trim()
-            val key = etApiKey.text.toString().trim()
-            if (base.isEmpty() || mId.isEmpty() || key.isEmpty()) {
+            val triple = currentTriple()
+            if (triple.first.isEmpty() || triple.second.isEmpty() || triple.third.isEmpty()) {
                 tvTestResult.visibility = View.VISIBLE
                 tvTestResult.text = getString(R.string.ai_model_test_empty)
                 tvTestResult.setTextColor(ContextCompat.getColor(this, R.color.conflict_error))
@@ -360,28 +382,51 @@ class MainActivity : AppCompatActivity() {
             tvTestResult.text = "测试中…"
             tvTestResult.setTextColor(ContextCompat.getColor(this, R.color.field_en))
             lifecycleScope.launch {
-                val result = client.testConnection(base, mId, key)
+                val result = client.testConnection(triple.first, triple.second, triple.third)
                 btnTest.isEnabled = true
                 btnTest.text = getString(R.string.ai_model_test)
                 tvTestResult.text = result
+                val ok = result.startsWith("成功")
+                if (ok) testedTriple = triple
                 tvTestResult.setTextColor(ContextCompat.getColor(
                     this@MainActivity,
-                    if (result.startsWith("成功")) R.color.ok_green else R.color.conflict_error
+                    if (ok) R.color.ok_green else R.color.conflict_error
                 ))
             }
         }
 
-        MaterialAlertDialogBuilder(this)
-            .setTitle(if (editModel != null) R.string.ai_model_edit else R.string.ai_model_config_title)
+        val isEdit = editModel != null
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(if (isEdit) R.string.ai_model_edit else R.string.ai_model_add)
             .setView(view)
             .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(R.string.ai_save) { _, _ ->
+            .setPositiveButton(if (isEdit) R.string.ai_save else R.string.ai_model_add, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val triple = currentTriple()
+                // 必填校验
+                if (triple.first.isEmpty() || triple.second.isEmpty() || triple.third.isEmpty()) {
+                    tvTestResult.visibility = View.VISIBLE
+                    tvTestResult.text = getString(R.string.ai_model_test_empty)
+                    tvTestResult.setTextColor(ContextCompat.getColor(this, R.color.conflict_error))
+                    return@setOnClickListener
+                }
+                // 连通性门禁：新增必须测试通过；编辑时连接三元组改过也必须重测
+                val tripleUnchanged = model != null &&
+                    triple == Triple(model.apiBase, model.modelId, model.apiKey)
+                if (!tripleUnchanged && testedTriple != triple) {
+                    tvTestResult.visibility = View.VISIBLE
+                    tvTestResult.text = getString(R.string.ai_model_test_required)
+                    tvTestResult.setTextColor(ContextCompat.getColor(this, R.color.conflict_error))
+                    return@setOnClickListener
+                }
                 val newModel = ModelManager.ModelConfig(
                     id = model?.id ?: java.util.UUID.randomUUID().toString(),
                     name = etDisplayName.text.toString().trim().ifEmpty { etModelId.text.toString().trim() },
-                    apiBase = etApiBase.text.toString().trim(),
-                    modelId = etModelId.text.toString().trim(),
-                    apiKey = etApiKey.text.toString().trim(),
+                    apiBase = triple.first,
+                    modelId = triple.second,
+                    apiKey = triple.third,
                     maxInputTokens = etMaxInputTokens.text.toString().toIntOrNull() ?: 131072,
                     maxOutputTokens = etMaxOutputTokens.text.toString().toIntOrNull() ?: 16384,
                     toolRounds = etToolRounds.text.toString().toIntOrNull() ?: 25,
@@ -398,8 +443,10 @@ class MainActivity : AppCompatActivity() {
                 renderAiModelStatus()
                 Toast.makeText(this, R.string.ai_settings_saved, Toast.LENGTH_SHORT).show()
                 onSaved?.invoke()
+                dialog.dismiss()
             }
-            .show()
+        }
+        dialog.show()
     }
 
     private fun showModelManagerDialog() {
@@ -446,7 +493,8 @@ class MainActivity : AppCompatActivity() {
         val addBtn = com.google.android.material.button.MaterialButton(this).apply {
             text = getString(R.string.ai_model_add)
             setOnClickListener {
-                showModelConfigDialog(onSaved = { modelsReload() })
+                // 始终创建新模型
+                showModelConfigDialog(editModel = null, onSaved = { modelsReload() })
             }
         }
         container.addView(addBtn, LinearLayout.LayoutParams(
@@ -475,6 +523,26 @@ class MainActivity : AppCompatActivity() {
                     layoutParams = LinearLayout.LayoutParams(
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
                     )
+                    // 点击已启用且非当前的模型 → 设为当前模型
+                    val isCurrentModel = ModelManager.getCurrent(this@MainActivity)?.id == model.id
+                    if (model.enabled && !isCurrentModel) {
+                        val clickBg = android.util.TypedValue()
+                        theme.resolveAttribute(
+                            android.R.attr.selectableItemBackground, clickBg, true
+                        )
+                        setBackgroundResource(clickBg.resourceId)
+                        setOnClickListener {
+                            ModelManager.setCurrent(this@MainActivity, model.id)
+                            UiKit.vibrate(this@MainActivity)
+                            renderAiModelStatus()
+                            modelsReload()
+                            Toast.makeText(
+                                this@MainActivity,
+                                "已切换到「${model.name.ifEmpty { model.modelId }}」",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
                 }
 
                 val nameRow = LinearLayout(this@MainActivity).apply {

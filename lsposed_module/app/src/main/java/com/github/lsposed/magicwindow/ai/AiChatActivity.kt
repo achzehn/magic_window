@@ -17,15 +17,27 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.github.lsposed.magicwindow.R
 import com.github.lsposed.magicwindow.databinding.ActivityAiChatBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
-import kotlinx.coroutines.launch
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.widget.ImageView
 
 class AiChatActivity : AppCompatActivity() {
+
+    companion object {
+        /** 发送图片时最长边限制（px），超过则降采样 */
+        private const val MAX_IMAGE_DIMEN = 1280
+
+        /** 单个文本附件注入提示词的最大字符数，防止超出模型上下文 */
+        private const val MAX_TEXT_CHARS = 60_000
+    }
 
     private lateinit var binding: ActivityAiChatBinding
     private val messages = mutableListOf<MessageUi>()
@@ -39,14 +51,18 @@ class AiChatActivity : AppCompatActivity() {
         val uri: Uri,
         val name: String,
         val type: String, // "image" | "text"
-        val content: String? = null // 文本文件内容
+        val content: String? = null, // 文本文件内容
+        /** 图片压缩后的 data URI（data:image/...;base64,...），后台处理完成才有值 */
+        val imageDataUri: String? = null
     )
 
     data class MessageUi(
         val role: String,       // "user" | "assistant"
-        val content: String,
+        var content: String,
         val toolCalls: String? = null,
-        val attachments: List<Attachment> = emptyList()
+        val attachments: List<Attachment> = emptyList(),
+        /** 该条助手消息为请求失败提示，展示「重试」按钮 */
+        var isError: Boolean = false
     )
 
     // 文件选择器
@@ -62,6 +78,15 @@ class AiChatActivity : AppCompatActivity() {
     ) { uri ->
         if (uri != null) handleImagePicked(uri)
     }
+
+    /** 当前生成任务，用于手动停止 */
+    private var genJob: kotlinx.coroutines.Job? = null
+
+    /** 流式输出中正在更新的助手消息下标 */
+    private var streamPos = -1
+
+    /** 缩略图缓存：key = uri#targetSize */
+    private val thumbCache = object : android.util.LruCache<String, android.graphics.Bitmap>(48) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,7 +113,10 @@ class AiChatActivity : AppCompatActivity() {
             showWelcome()
         }
 
-        binding.fabSend.setOnClickListener { sendMessage() }
+        // 生成中点击 = 停止；空闲时点击 = 发送
+        binding.fabSend.setOnClickListener {
+            if (isGenerating) stopGeneration() else sendMessage()
+        }
 
         // 附件按钮
         binding.btnAttach.setOnClickListener { showAttachDialog() }
@@ -211,8 +239,53 @@ class AiChatActivity : AppCompatActivity() {
 
     private fun handleImagePicked(uri: Uri) {
         val name = uri.lastPathSegment ?: "image.jpg"
-        pendingAttachments.add(Attachment(uri, name, "image"))
+        val att = Attachment(uri, name, "image")
+        pendingAttachments.add(att)
         updateAttachmentPreview()
+        // 后台压缩 + base64，避免大图撑爆请求体；完成前发送会被拦截提示
+        lifecycleScope.launch {
+            val dataUri = withContext(Dispatchers.IO) {
+                runCatching { readImageAsDataUri(uri) }.getOrNull()
+            }
+            val idx = pendingAttachments.indexOf(att)
+            if (idx >= 0) {
+                if (dataUri != null) {
+                    pendingAttachments[idx] = att.copy(imageDataUri = dataUri)
+                } else {
+                    pendingAttachments.removeAt(idx)
+                    Toast.makeText(this@AiChatActivity, "图片「$name」读取失败", Toast.LENGTH_SHORT).show()
+                }
+                updateAttachmentPreview()
+            }
+        }
+    }
+
+    /** 读取图片并降采样压缩为 data URI，最长边不超过 [MAX_IMAGE_DIMEN] */
+    private fun readImageAsDataUri(uri: Uri): String {
+        val mime = contentResolver.getType(uri) ?: "image/jpeg"
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, bounds)
+        }
+        var sample = 1
+        while (bounds.outWidth / sample > MAX_IMAGE_DIMEN ||
+            bounds.outHeight / sample > MAX_IMAGE_DIMEN) {
+            sample *= 2
+        }
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bmp = contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, opts)
+        } ?: throw IllegalStateException("图片解码失败")
+        val format = when {
+            mime.contains("png") -> Bitmap.CompressFormat.PNG
+            mime.contains("webp") -> Bitmap.CompressFormat.WEBP
+            else -> Bitmap.CompressFormat.JPEG
+        }
+        val bytes = java.io.ByteArrayOutputStream().also {
+            bmp.compress(format, 85, it)
+        }.toByteArray()
+        val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        return "data:$mime;base64,$b64"
     }
 
     private fun handleFilePicked(uri: Uri) {
@@ -237,34 +310,118 @@ class AiChatActivity : AppCompatActivity() {
         binding.rvAttachments.adapter = object : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             override fun getItemCount() = pendingAttachments.size
             override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-                val tv = TextView(parent.context).apply {
-                    setPadding(24, 12, 24, 12)
-                    textSize = 12f
-                    setCompoundDrawablesWithIntrinsicBounds(
-                        if (viewType == 0) android.R.drawable.ic_menu_camera else android.R.drawable.ic_menu_save,
-                        0, android.R.drawable.ic_menu_close_clear_cancel, 0
-                    )
-                    compoundDrawablePadding = 8
-                    setBackgroundResource(R.drawable.bg_chip)
-                }
-                return object : RecyclerView.ViewHolder(tv) {}
+                val dp = parent.resources.displayMetrics.density
+                val root = android.widget.FrameLayout(parent.context)
+                root.layoutParams = RecyclerView.LayoutParams(
+                    (72 * dp).toInt(), (72 * dp).toInt()
+                ).apply { marginEnd = (8 * dp).toInt() }
+                return object : RecyclerView.ViewHolder(root) {}
             }
             override fun getItemViewType(position: Int) =
                 if (pendingAttachments[position].type == "image") 0 else 1
             override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+                val root = holder.itemView as android.widget.FrameLayout
+                root.removeAllViews()
                 val att = pendingAttachments[position]
-                (holder.itemView as TextView).text = att.name
-                holder.itemView.setOnClickListener {
-                    pendingAttachments.removeAt(position)
-                    notifyDataSetChanged()
-                    updateAttachmentPreview()
+                val ctx = root.context
+                val dp = ctx.resources.displayMetrics.density
+
+                if (att.type == "image") {
+                    // 图片缩略图卡片，处理中半透明
+                    val card = com.google.android.material.card.MaterialCardView(ctx).apply {
+                        layoutParams = android.widget.FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                        radius = 14 * dp
+                        cardElevation = 0f
+                        strokeWidth = 0
+                        alpha = if (att.imageDataUri == null) 0.5f else 1f
+                    }
+                    card.addView(ImageView(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                        scaleType = ImageView.ScaleType.CENTER_CROP
+                    })
+                    decodeThumb(att.uri, 128)?.let { (card.getChildAt(0) as ImageView).setImageBitmap(it) }
+                    root.addView(card)
+                } else {
+                    // 文本文件 chip
+                    root.addView(TextView(ctx).apply {
+                        layoutParams = android.widget.FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                        gravity = android.view.Gravity.CENTER
+                        textSize = 11f
+                        maxLines = 3
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                        text = "📄 ${att.name}"
+                        setBackgroundResource(R.drawable.bg_chip)
+                        setPadding((8 * dp).toInt(), (4 * dp).toInt(), (8 * dp).toInt(), (4 * dp).toInt())
+                    })
                 }
+
+                // 移除按钮
+                val close = ImageView(ctx).apply {
+                    layoutParams = android.widget.FrameLayout.LayoutParams(
+                        (22 * dp).toInt(), (22 * dp).toInt(),
+                        android.view.Gravity.TOP or android.view.Gravity.END)
+                    setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+                    setPadding((2 * dp).toInt(), (2 * dp).toInt(), (2 * dp).toInt(), (2 * dp).toInt())
+                }
+                close.setOnClickListener {
+                    val pos = holder.bindingAdapterPosition
+                    if (pos != RecyclerView.NO_POSITION && pos < pendingAttachments.size) {
+                        pendingAttachments.removeAt(pos)
+                        notifyDataSetChanged()
+                        updateAttachmentPreview()
+                    }
+                }
+                root.addView(close)
             }
         }
     }
 
+    /** 解码图片缩略图（带缓存），失败返回 null */
+    private fun decodeThumb(uri: Uri, target: Int = 256): android.graphics.Bitmap? {
+        val key = "$uri#$target"
+        thumbCache.get(key)?.let { return it }
+        val bmp = runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, bounds)
+            } ?: return null
+            var sample = 1
+            while (bounds.outWidth / (sample * 2) >= target && bounds.outHeight / (sample * 2) >= target) {
+                sample *= 2
+            }
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+            contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, opts)
+            }
+        }.getOrNull()
+        if (bmp != null) thumbCache.put(key, bmp)
+        return bmp
+    }
+
+    /** 全屏预览图片 */
+    private fun showImagePreview(uri: Uri) {
+        lifecycleScope.launch {
+            val bmp = withContext(Dispatchers.IO) { decodeThumb(uri, 1024) }
+            if (bmp == null) {
+                Toast.makeText(this@AiChatActivity, "图片加载失败", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val iv = ImageView(this@AiChatActivity).apply {
+                setImageBitmap(bmp)
+                adjustViewBounds = true
+            }
+            MaterialAlertDialogBuilder(this@AiChatActivity)
+                .setView(android.widget.FrameLayout(this@AiChatActivity).apply { addView(iv) })
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+        }
+    }
+
     private fun sendMessage() {
-        val text = binding.etInput.text?.toString()?.trim() ?: return
+        val text = binding.etInput.text?.toString()?.trim().orEmpty()
         if ((text.isEmpty() && pendingAttachments.isEmpty()) || isGenerating) return
 
         if (ModelManager.getCurrent(this) == null) {
@@ -272,11 +429,17 @@ class AiChatActivity : AppCompatActivity() {
             return
         }
 
+        // 图片仍在后台压缩时禁止发送，避免发空图
+        if (pendingAttachments.any { it.type == "image" && it.imageDataUri == null }) {
+            Toast.makeText(this, "图片处理中，请稍候…", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         // 如果没有当前对话，创建新对话
         if (currentConversation == null) {
             currentConversation = ChatHistory.create(
                 this,
-                ChatHistory.generateTitle(text),
+                ChatHistory.generateTitle(text.ifEmpty { pendingAttachments.joinToString(",") { it.name } }),
                 ModelManager.getCurrent(this)?.id ?: ""
             )
         }
@@ -289,61 +452,156 @@ class AiChatActivity : AppCompatActivity() {
 
         addMessage(MessageUi("user", displayText, attachments = pendingAttachments.toList()))
         binding.etInput.setText("")
-        val sentAttachments = pendingAttachments.toList()
+        val sentText = text
         pendingAttachments.clear()
         updateAttachmentPreview()
 
+        launchRequest(sentText.ifEmpty { displayText })
+    }
+
+    /**
+     * 发起一次流式 AI 请求；发送与失败重试共用。
+     * token 逐段到达，实时写入气泡，同时解决弱网下长时间无响应被中断的问题。
+     * @param userText 本次用户消息的纯文本，成功后写入历史（重试时从消息列表回推）
+     */
+    private fun launchRequest(userText: String) {
         isGenerating = true
-        binding.fabSend.isEnabled = false
+        streamPos = -1
+        binding.fabSend.isEnabled = true
+        binding.fabSend.setImageResource(R.drawable.ic_stop)
+        binding.fabSend.contentDescription = getString(R.string.ai_stop)
         addLoading()
 
-        lifecycleScope.launch {
+        genJob = lifecycleScope.launch {
             try {
                 val aiMessages = buildAiMessages()
-                val reply = aiClient.chat(aiMessages) { name, args ->
-                    runOnUiThread { updateToolStatus("正在执行: $name...") }
-                    val result = AiToolExecutor.execute(this@AiChatActivity, name, args)
-                    runOnUiThread { updateToolStatus(null) }
-                    result
-                }
+                val reply = aiClient.chatStream(
+                    aiMessages,
+                    onDelta = { piece ->
+                        withContext(Dispatchers.Main) { appendStreamDelta(piece) }
+                    },
+                    onToolCall = { name, args ->
+                        withContext(Dispatchers.Main) { updateToolStatus("正在执行: $name...") }
+                        val result = AiToolExecutor.execute(this@AiChatActivity, name, args)
+                        withContext(Dispatchers.Main) { updateToolStatus(null) }
+                        result
+                    }
+                )
 
-                removeLoading()
-                addMessage(MessageUi("assistant", reply))
+                if (streamPos >= 0) {
+                    if (reply.isNotEmpty()) {
+                        messages[streamPos].content = reply
+                        adapter.notifyItemChanged(streamPos)
+                    }
+                } else if (reply.isNotEmpty()) {
+                    removeLoading()
+                    addMessage(MessageUi("assistant", reply))
+                } else {
+                    removeLoading()
+                    addMessage(MessageUi("assistant", "（模型未返回内容）", isError = true))
+                }
 
                 // 保存到历史
                 currentConversation?.let { conv ->
-                    conv.messages.add(ChatHistory.Message("user", text))
+                    conv.messages.add(ChatHistory.Message("user", userText))
                     conv.messages.add(ChatHistory.Message("assistant", reply))
                     ChatHistory.save(this@AiChatActivity, conv)
                 }
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                // 用户手动停止：给已生成的部分内容打上标记
+                if (streamPos >= 0 && messages.getOrNull(streamPos)?.role == "assistant") {
+                    messages[streamPos].content =
+                        messages[streamPos].content.trimEnd() + "\n\n（已停止）"
+                    adapter.notifyItemChanged(streamPos)
+                } else {
+                    removeLoading()
+                }
+                throw ce
             } catch (e: Exception) {
-                removeLoading()
-                addMessage(MessageUi("assistant", "抱歉，出错了：${e.message}\n\n请检查 API 配置是否正确。"))
+                android.util.Log.e("AiChat", "对话请求失败", e)
+                val reason = e.message?.takeIf { it.isNotBlank() }
+                    ?: "${e.javaClass.simpleName}（无错误信息，详见日志标签 AiClient）"
+                if (streamPos >= 0 && messages.getOrNull(streamPos)?.role == "assistant") {
+                    messages[streamPos].content += "\n\n[请求失败：$reason]"
+                    messages[streamPos].isError = true
+                    adapter.notifyItemChanged(streamPos)
+                } else {
+                    removeLoading()
+                    addMessage(
+                        MessageUi(
+                            "assistant",
+                            "请求失败：$reason\n\n可点下方「重试」再试一次。",
+                            isError = true
+                        )
+                    )
+                }
             } finally {
                 isGenerating = false
+                genJob = null
+                streamPos = -1
+                binding.fabSend.setImageResource(R.drawable.ic_send)
+                binding.fabSend.contentDescription = getString(R.string.ai_send)
                 binding.fabSend.isEnabled = true
             }
         }
+    }
+
+    /** 追加一段流式文本到当前助手气泡 */
+    private fun appendStreamDelta(piece: String) {
+        if (streamPos == -1) {
+            removeLoading()
+            messages.add(MessageUi("assistant", piece))
+            streamPos = messages.size - 1
+            adapter.notifyItemInserted(streamPos)
+        } else {
+            messages[streamPos].content += piece
+        }
+        val holder = binding.recycler.findViewHolderForAdapterPosition(streamPos)
+            as? MessageAdapter.MsgViewHolder
+        holder?.tvAiMessage?.text = messages[streamPos].content
+        binding.recycler.scrollToPosition(streamPos)
+    }
+
+    /** 手动停止生成：取消协程并断开底层连接 */
+    private fun stopGeneration() {
+        genJob?.cancel()
+        aiClient.cancelActiveRequest()
+    }
+
+    /** 失败消息重试：移除错误提示后用已有的用户消息重新请求 */
+    private fun retryLast(errorPosition: Int) {
+        if (isGenerating) return
+        if (errorPosition in messages.indices) {
+            messages.removeAt(errorPosition)
+            adapter.notifyItemRemoved(errorPosition)
+        }
+        val lastUserText = messages.lastOrNull { it.role == "user" }?.content
+            ?: return
+        launchRequest(lastUserText)
     }
 
     private fun buildAiMessages(): List<AiClient.ChatMessage> {
         val result = mutableListOf<AiClient.ChatMessage>()
         result.add(AiClient.ChatMessage("system", AiSystemPrompt.SYSTEM_PROMPT))
         messages.forEach { msg ->
+            // 图片以多模态形式真正发送；未能编码成功的图片给出文字提示
+            val hasFailedImage = msg.attachments.any { it.type == "image" && it.imageDataUri == null }
             val fullContent = buildString {
                 append(msg.content)
-                // 附加文件内容
+                // 附加文件内容（截断超长文件，防止超出模型上下文导致接口报错）
                 msg.attachments.filter { it.type == "text" && it.content != null }.forEach { att ->
+                    val raw = att.content!!
+                    val shown = if (raw.length > MAX_TEXT_CHARS) {
+                        raw.take(MAX_TEXT_CHARS) + "\n…（文件过长，已截断，共 ${raw.length} 字符）"
+                    } else raw
                     append("\n\n--- 附件：${att.name} ---\n")
-                    append(att.content)
+                    append(shown)
                     append("\n--- 附件结束 ---")
                 }
-                // 附加图片说明
-                msg.attachments.filter { it.type == "image" }.forEach { att ->
-                    append("\n\n[已上传图片：${att.name}]")
-                }
+                if (hasFailedImage) append("\n\n[有图片读取失败，未能上传]")
             }
-            result.add(AiClient.ChatMessage(msg.role, fullContent))
+            val images = msg.attachments.mapNotNull { it.imageDataUri }
+            result.add(AiClient.ChatMessage(msg.role, fullContent, images = images))
         }
         return result
     }
@@ -432,48 +690,6 @@ class AiChatActivity : AppCompatActivity() {
         showWelcome()
     }
 
-    private fun showSettingsDialog() {
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(60, 40, 60, 0)
-        }
-
-        fun addField(label: String, value: String, hint: String): TextInputEditText {
-            val til = TextInputEditText(this).apply {
-                this.hint = hint
-                setText(value)
-                setTextIsSelectable(true)
-            }
-            layout.addView(TextView(this).apply {
-                text = label
-                textSize = 13f
-                setPadding(0, 24, 0, 4)
-            })
-            layout.addView(til)
-            return til
-        }
-
-        val etApiBase = addField("API 地址", AiSettings.apiBase(this), "https://api.openai.com/v1")
-        val etModelId = addField("模型 ID", AiSettings.modelId(this), "gpt-4o-mini")
-        val etApiKey = addField("API 密钥", AiSettings.apiKey(this), "sk-...")
-        val etDisplayName = addField("显示名称（可选）", AiSettings.displayName(this), "我的 AI 助手")
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.ai_settings)
-            .setView(layout)
-            .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(R.string.ai_save) { _, _ ->
-                AiSettings.save(this) {
-                    putString("api_base", etApiBase.text.toString().trim())
-                    putString("model_id", etModelId.text.toString().trim())
-                    putString("api_key", etApiKey.text.toString().trim())
-                    putString("display_name", etDisplayName.text.toString().trim())
-                }
-                Toast.makeText(this, R.string.ai_settings_saved, Toast.LENGTH_SHORT).show()
-            }
-            .show()
-    }
-
     // ── 适配器 ──
 
     inner class MessageAdapter(private val items: List<MessageUi>) :
@@ -501,12 +717,48 @@ class AiChatActivity : AppCompatActivity() {
             val vh = holder as MsgViewHolder
             val item = items[position]
 
+            vh.btnRetry.setOnClickListener {
+                val pos = vh.bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION) retryLast(pos)
+            }
+
             when (getItemViewType(position)) {
                 TYPE_USER -> {
                     vh.layoutUser.visibility = View.VISIBLE
                     vh.layoutAi.visibility = View.GONE
                     vh.layoutLoading.visibility = View.GONE
-                    vh.tvUserMessage.text = item.content
+
+                    // 图片缩略图行（点击可预览）
+                    val imgs = item.attachments.filter { it.type == "image" }
+                    vh.layoutUserAttach.visibility = if (imgs.isEmpty()) View.GONE else View.VISIBLE
+                    vh.layoutUserAttach.removeAllViews()
+                    val dp = vh.itemView.resources.displayMetrics.density
+                    imgs.forEach { att ->
+                        val card = com.google.android.material.card.MaterialCardView(this@AiChatActivity).apply {
+                            layoutParams = LinearLayout.LayoutParams(
+                                (96 * dp).toInt(), (96 * dp).toInt()
+                            ).apply {
+                                marginStart = (6 * dp).toInt()
+                                topMargin = (4 * dp).toInt()
+                            }
+                            radius = 12 * dp
+                            cardElevation = 0f
+                            strokeWidth = 0
+                        }
+                        card.addView(ImageView(this@AiChatActivity).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                        })
+                        decodeThumb(att.uri)?.let { (card.getChildAt(0) as ImageView).setImageBitmap(it) }
+                        card.setOnClickListener { showImagePreview(att.uri) }
+                        vh.layoutUserAttach.addView(card)
+                    }
+
+                    // 文本文件以文件名列出
+                    val texts = item.attachments.filter { it.type == "text" }
+                    vh.tvUserMessage.text = if (texts.isEmpty()) item.content
+                    else item.content + "\n" + texts.joinToString("\n") { "📎 ${it.name}" }
                 }
                 TYPE_AI -> {
                     vh.layoutUser.visibility = View.GONE
@@ -519,6 +771,7 @@ class AiChatActivity : AppCompatActivity() {
                     } else {
                         vh.tvToolCall.visibility = View.GONE
                     }
+                    vh.btnRetry.visibility = if (item.isError) View.VISIBLE else View.GONE
                 }
                 TYPE_LOADING -> {
                     vh.layoutUser.visibility = View.GONE
@@ -530,11 +783,14 @@ class AiChatActivity : AppCompatActivity() {
 
         inner class MsgViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             val layoutUser: LinearLayout = view.findViewById(R.id.layoutUser)
+            val layoutUserAttach: LinearLayout = view.findViewById(R.id.layoutUserAttach)
             val layoutAi: LinearLayout = view.findViewById(R.id.layoutAi)
             val layoutLoading: LinearLayout = view.findViewById(R.id.layoutLoading)
             val tvUserMessage: TextView = view.findViewById(R.id.tvUserMessage)
             val tvAiMessage: TextView = view.findViewById(R.id.tvAiMessage)
             val tvToolCall: TextView = view.findViewById(R.id.tvToolCall)
+            val btnRetry: com.google.android.material.button.MaterialButton =
+                view.findViewById(R.id.btnRetry)
         }
     }
 }

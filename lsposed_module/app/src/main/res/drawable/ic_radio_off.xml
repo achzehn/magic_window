@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 单选圆点：未选中（空心圆环） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="22dp"
+    android:height="22dp"
+    android:viewportWidth="22"
+    android:viewportHeight="22">
+    <path
+        android:fillColor="#9AA2AD"
+        android:fillType="evenOdd"
+        android:pathData="M11,2a9,9 0 1,0 0.001,0zM11,4a7,7 0 1,1 -0.001,0z" />
+</vector>

@@ -31,6 +31,9 @@ import com.google.android.material.textfield.TextInputLayout
 /** 动态表单构建工具：把 45+ 个配置项按分组渲染，避免维护巨型静态 XML。 */
 object UiKit {
 
+    /** 滑块统一步进：0.05 */
+    private const val STEP = 0.05f
+
     /**
      * 动态行在同一棵视图树里被复用了几十次同一个 id（til/et/chip/sw）。
      * 旋转重建 Activity 时框架会按 id 自动恢复保存的状态，导致同 id 控件互相串值
@@ -220,34 +223,39 @@ object UiKit {
     /**
      * 触发一次短震动反馈。
      * 用于滑块到达节点、开关切换、Chip 选择等交互。
+     * 震动失败（如个别 ROM 权限策略异常）只静默忽略，绝不能崩界面。
      */
     fun vibrate(context: Context, durationMs: Long = 15) {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-            vm?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        }
-        if (vibrator?.hasVibrator() == true) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
+        runCatching {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator
             } else {
                 @Suppress("DEPRECATION")
-                vibrator.vibrate(durationMs)
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            if (vibrator?.hasVibrator() == true) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate(durationMs)
+                }
             }
         }
     }
 
     /**
-     * 滑块行：支持无极拖动，在指定节点处触发震动反馈。
+     * 滑块行：固定按 [STEP]（0.05）步进吸附，不做无极调节。
+     *
+     * 内部用整数刻度（stepSize=1）规避浮点精度问题：直接用 0.1f..0.9f + stepSize=0.05f 时，
+     * (0.9-0.1)/0.05 在浮点下不是精确整数，Material Slider 会忽略步进或让挡位偏移，
+     * 横屏时尤其明显。对外仍换算回 0.05 步进的浮点值。
+     *
      * @param value 当前值
-     * @param valueRange 取值范围
+     * @param valueRange 取值范围（端点自动对齐到 0.05）
      * @param steps 震动节点列表（拖到这些值时触发震动）
-     * @param onChange 值变化回调（连续触发）
-     * @param label 标签
-     * @param en 英文属性名
-     * @param hint 提示文字
+     * @param onChange 值变化回调，返回 0.05 步进的浮点值
      */
     fun sliderRow(
         parent: ViewGroup,
@@ -273,26 +281,33 @@ object UiKit {
         valueTv.text = "%.2f".format(value)
 
         val slider = layout.findViewById<Slider>(R.id.slider)
-        slider.valueFrom = valueRange.start
-        slider.valueTo = valueRange.endInclusive
-        slider.value = value
-        slider.stepSize = 0.05f
+        // 整数刻度：索引 n 对应实际值 n * STEP
+        val startIdx = Math.round(valueRange.start / STEP)
+        val endIdx = Math.round(valueRange.endInclusive / STEP)
+        val initialIdx = Math.round(value / STEP).coerceIn(startIdx, endIdx)
+        val initialValue = initialIdx * STEP
+        slider.valueFrom = startIdx.toFloat()
+        slider.valueTo = endIdx.toFloat()
+        slider.stepSize = 1f
+        slider.value = initialIdx.toFloat()
+        valueTv.text = "%.2f".format(initialValue)
 
         var lastStep: Float? = null
         slider.addOnChangeListener { _, sliderValue, fromUser ->
             if (!fromUser) return@addOnChangeListener
-            valueTv.text = "%.2f".format(sliderValue)
-            // 检查是否到达震动节点
-            val matchedStep = steps.minByOrNull { Math.abs(it - sliderValue) }
-            if (matchedStep != null && Math.abs(matchedStep - sliderValue) < 0.03f
+            val realValue = sliderValue * STEP
+            valueTv.text = "%.2f".format(realValue)
+            // 整数刻度下值精确落在挡位上，用小容差匹配震动节点
+            val matchedStep = steps.minByOrNull { Math.abs(it - realValue) }
+            if (matchedStep != null && Math.abs(matchedStep - realValue) < STEP / 2f
                 && matchedStep != lastStep) {
                 lastStep = matchedStep
                 vibrate(parent.context)
             }
-            if (matchedStep == null || Math.abs(matchedStep - sliderValue) > 0.05f) {
+            if (matchedStep == null || Math.abs(matchedStep - realValue) > STEP / 2f) {
                 lastStep = null
             }
-            onChange(sliderValue)
+            onChange(realValue)
         }
 
         layout.disableStateSaving()

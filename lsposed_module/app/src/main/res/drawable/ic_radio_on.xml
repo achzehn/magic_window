@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 单选圆点：选中（品牌色圆环 + 实心圆心） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="22dp"
+    android:height="22dp"
+    android:viewportWidth="22"
+    android:viewportHeight="22">
+    <path
+        android:fillColor="#2F6BFF"
+        android:fillType="evenOdd"
+        android:pathData="M11,2a9,9 0 1,0 0.001,0zM11,4a7,7 0 1,1 -0.001,0z" />
+    <path
+        android:fillColor="#2F6BFF"
+        android:pathData="M11,7.2a3.8,3.8 0 1,0 0.001,0z" />
+</vector>

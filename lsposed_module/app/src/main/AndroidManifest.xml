@@ -9,6 +9,9 @@
     <!-- MCP 调试服务器：局域网 HTTP 访问 -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- 界面交互震动反馈（滑块挡位、开关切换等） -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <application
         android:name=".MagicWindowApp"
         android:allowBackup="false"
