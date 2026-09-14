@@ -140,11 +140,11 @@ class AppDetailActivity : AppCompatActivity() {
             rule.enabled = v
         }
 
-        binding.modeGroup.check(buttonOf(pendingMode))
+        binding.modeGroup.check(ModeUi.buttonOf(pendingMode))
         binding.modeGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (!isChecked) return@addOnButtonCheckedListener
             dirty = true
-            pendingMode = modeOf(checkedId)
+            pendingMode = ModeUi.modeOf(checkedId)
             UiKit.vibrate(this)
             applyModeDefaults()
             updateModeDesc()
@@ -174,7 +174,7 @@ class AppDetailActivity : AppCompatActivity() {
         if (!userSaved && !dirty) {
             SystemRuleSource.applyDefaults(rule)
             pendingMode = rule.mode
-            binding.modeGroup.check(buttonOf(pendingMode))
+            binding.modeGroup.check(ModeUi.buttonOf(pendingMode))
             buildForm()
         }
         showBuiltinCard()
@@ -274,7 +274,7 @@ class AppDetailActivity : AppCompatActivity() {
         dirty = false
         binding.switchEnabled.isChecked = rule.enabled
         binding.swForceEdit.isChecked = rule.forceEdit
-        binding.modeGroup.check(buttonOf(pendingMode))
+        binding.modeGroup.check(ModeUi.buttonOf(pendingMode))
         buildForm()
         applyEditState()
         UiKit.vibrate(this)
@@ -296,22 +296,6 @@ class AppDetailActivity : AppCompatActivity() {
             BuiltinUi.kindName(this, kind, pkg)
         }
         binding.tvBuiltin.text = getString(R.string.detail_builtin_hint, names)
-    }
-
-    // ── 主模式按钮映射 ───────────────────────────────────────
-
-    private fun buttonOf(mode: WindowMode): Int = when (mode) {
-        WindowMode.OFF -> R.id.btnModeOff
-        WindowMode.FULL_SCREEN -> R.id.btnModeFull
-        WindowMode.EMBEDDING -> R.id.btnModeEmbedding
-        WindowMode.FIXED_ORIENTATION -> R.id.btnModeFixed
-    }
-
-    private fun modeOf(id: Int): WindowMode = when (id) {
-        R.id.btnModeOff -> WindowMode.OFF
-        R.id.btnModeFull -> WindowMode.FULL_SCREEN
-        R.id.btnModeFixed -> WindowMode.FIXED_ORIENTATION
-        else -> WindowMode.EMBEDDING
     }
 
     /** 模式按钮下的人话说明 */
@@ -1967,7 +1951,7 @@ class AppDetailActivity : AppCompatActivity() {
                 userSaved = true
                 dirty = true
                 binding.switchEnabled.isChecked = rule.enabled
-                binding.modeGroup.check(buttonOf(rule.mode))
+                binding.modeGroup.check(ModeUi.buttonOf(rule.mode))
                 updateModeDesc()
                 buildForm()
                 Snackbar.make(binding.root, R.string.import_rule_done, Snackbar.LENGTH_LONG).show()

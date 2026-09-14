@@ -210,12 +210,7 @@ class AppListActivity : AppCompatActivity() {
         }
     }
 
-    private fun selectedMode(): WindowMode = when (binding.batchModeGroup.checkedButtonId) {
-        R.id.btnModeOff -> WindowMode.OFF
-        R.id.btnModeFull -> WindowMode.FULL_SCREEN
-        R.id.btnModeFixed -> WindowMode.FIXED_ORIENTATION
-        else -> WindowMode.EMBEDDING
-    }
+    private fun selectedMode(): WindowMode = ModeUi.modeOf(binding.batchModeGroup.checkedButtonId)
 
     private fun applyBatch() {
         val pkgs = adapter.selected.toList()

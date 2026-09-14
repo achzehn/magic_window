@@ -668,4 +668,3 @@ xposed_scope = ["android", "com.github.lsposed.magicwindow"]
 - 完成正式版签名密钥生成（`magicwindow.keystore`）
 - 成功构建 Release APK：`app-release.apk`（10.9 MB，versionCode 2，versionName 2.0.0）
 - 构建路径：`lsposed_module/app/build/outputs/apk/release/app-release.apk`
-- 构建耗时：1 分 20 秒（126 个任务）
