@@ -623,3 +623,49 @@ xposed_scope = ["android", "com.github.lsposed.magicwindow"]
    - AI 聊天气泡宽度、输入栏/消息列表边距随屏宽放大。
 4. **细节**：应用图标 `bg_icon_mask.xml` + `clipToOutline` 统一圆角（列表 11dp、详情 48dp 图标）；详情底部操作栏加分隔线与 8dp 投影；滑块行改为内嵌 16dp 圆角填充卡；模型状态「已配置」标签改圆角 pill（`bg_pill.xml`，`MainActivity` 用 `backgroundTintList` 着色而非 `setBackgroundColor`）；AI 模型对话框全部输入框继承新圆角样式。
 5. **Bug 修复**：MCP 未启动时点「客户端配置 JSON」闪退（`UninitializedPropertyAccessException: appContext`，`McpServer.clientConfigJson()` 依赖仅在 `start()` 里初始化的 lateinit 字段）。改为 `clientConfigJson(context)` 由调用方传入 Activity Context 读取令牌；`localUrl()`/`curPort()` 本就无需实例上下文，不受影响。
+
+---
+
+### v2.4.0（2026-09-14）— 界面视觉统一优化 + 正式版发布
+
+**页面抓取与配对对话框视觉统一：**
+
+1. **统一样式系统**：在 `AppDetailActivity` 新增一组样式 helper 函数，确保多选抓取和单选配对两个对话框的视觉完全一致：
+   - `stylePickerSearch()`：搜索框圆角浅底 + 左侧搜索图标，12dp 圆角（`bg_picker_search.xml`），13sp 文字，去掉裸下划线
+   - `aiActionButton()`：AI 操作按钮（Tonal/Outlined 两种样式），等高单行、紧凑 12sp 文字、左右间距归零
+   - `textActionButton()`：文字操作按钮（补全中文/清空），无背景、品牌蓝文字
+   - `bindAiTag()`：AI 标签胶囊自动着色（适合=绿、不适合=红、中性=灰）
+
+2. **列表项布局重构**（`item_page_picker.xml`）：
+   - 类名从单行改为两行显示（`maxLines=2`），避免长类名截断
+   - 第二行改为「中文说明（左）+ AI 标签胶囊（右）」并排布局
+   - 中文说明小字 11.5sp 灰色，AI 标签 10.5sp 胶囊化
+
+3. **单选/多选视觉区分**：
+   - 配对选择器（单选场景）改用圆形单选圆点（`selector_radio.xml`，`ic_radio_off/ic_radio_on`），与多选场景的方形勾选框明确区分
+   - 批量操作按钮改为轻量文字按钮，减少视觉重量
+
+4. **防止对话框裁切**：配对对话框外层包裹 `ScrollView`，避免小屏设备上第二段列表被底部按钮裁切
+
+**新增资源文件：**
+
+| 文件 | 说明 |
+|------|------|
+| `res/drawable/bg_picker_search.xml` | 搜索框 12dp 圆角浅灰背景 |
+| `res/drawable/selector_radio.xml` | 单选圆点选择器（选中/未选中状态） |
+| `res/drawable/bg_tag_negative.xml` | "不适合"标签浅红背景 |
+| `res/drawable/bg_tag_neutral.xml` | 中性标签浅灰背景（"适合"标签通过 setTint 着色） |
+
+**修改文件：**
+
+| 文件 | 变更 |
+|------|------|
+| `AppDetailActivity.kt` | 新增 4 个样式 helper 函数；列表项渲染逻辑重构；配对对话框加 ScrollView 包裹 |
+| `item_page_picker.xml` | 类名 maxLines 改为 2；第二行改为中文说明 +AI 标签并排布局 |
+
+**正式版发布：**
+
+- 完成正式版签名密钥生成（`magicwindow.keystore`）
+- 成功构建 Release APK：`app-release.apk`（10.9 MB，versionCode 2，versionName 2.0.0）
+- 构建路径：`lsposed_module/app/build/outputs/apk/release/app-release.apk`
+- 构建耗时：1 分 20 秒（126 个任务）
