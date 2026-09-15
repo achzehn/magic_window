@@ -474,7 +474,7 @@ app ──→ library:common
 - Android SDK（compileSdk 35）
 - Gradle（通过 wrapper 自动下载）
 
-### 11.2 构建命令
+### 11.2 本地构建命令
 
 ```bash
 cd lsposed_module
@@ -488,6 +488,71 @@ cd lsposed_module
 # 安装
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+### 11.3 GitHub Actions 自动构建（v2.4.4 起）
+
+项目已配置 GitHub Actions 自动构建流程，支持两种触发方式：
+
+#### 打标签自动触发
+
+```bash
+# 创建并推送版本标签
+git tag v2.4.4
+git push origin v2.4.4
+```
+
+推送标签后会自动触发：
+- 构建 Debug 和 Release APK
+- 创建 Release 草稿
+- 自动附加 APK 文件到 Release
+
+#### 手动触发
+
+访问：https://github.com/achzehn/magic_window/actions/workflows/build-and-release.yml
+
+1. 点击 "Run workflow"
+2. 输入版本号（如 `2.4.4`）
+3. 选择发布类型：
+   - **Draft**：创建草稿，需要手动发布
+   - **Release**：直接发布
+
+#### 签名密钥配置
+
+首次使用前需要在 GitHub Secrets 配置签名密钥：
+
+1. 生成 keystore（如果还没有）：
+   ```bash
+   keytool -genkey -v \
+     -keystore lsposed_module/magicwindow.keystore \
+     -alias magicwindow \
+     -keyalg RSA \
+     -keysize 2048 \
+     -validity 10000 \
+     -storepass magicwindow123 \
+     -keypass magicwindow123 \
+     -dname "CN=MagicWindow, OU=Development, O=LSPosed, L=Shanghai, ST=Shanghai, C=CN"
+   ```
+
+2. 转换为 Base64：
+   ```powershell
+   # Windows PowerShell
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("lsposed_module\magicwindow.keystore"))
+   ```
+
+3. 添加到 GitHub Secrets：
+   - 访问：https://github.com/achzehn/magic_window/settings/secrets/actions
+   - Name: `KEYSTORE_BASE64`
+   - Value: 粘贴 Base64 字符串
+
+详细配置参考：
+- [.github/KEYSTORE_SETUP.md](../.github/KEYSTORE_SETUP.md)
+- [README.md 构建说明](../README.md#github-actions-自动构建)
+
+**构建产物：**
+- Debug APK: `MagicWindow-Debug-v{version}.apk`
+- Release APK: `MagicWindow-Release-v{version}.apk`
+
+**工作流文件：** [.github/workflows/build-and-release.yml](../.github/workflows/build-and-release.yml)
 
 ### 11.3 安装与激活
 
@@ -800,6 +865,68 @@ AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug
 ---
 
 ### v2.4.3（2026-09-15）— AI 对话三项修复：图片显示 / 上下文压缩 / 模型状态同步
+
+**Bug 修复：**
+
+1. **AI 对话上传图片不显示**（灰块 + 「图片加载失败」）：根因是选图后直接对 `content://` URI 解码——临时授权会过期、云图/跨空间相册直接解码不可靠、部分 provider 流不稳定。修复为选取后立即 `importImage()` 转存到 `filesDir/chat_images/`（降采样 ≤1280px，一次解码同时产出本地文件与 base64），缩略图/全屏预览/上传全部改走本地文件；解码失败补 `Log.w` 日志。附件元数据（type/name/localPath，不含 base64）随消息持久化到 `ChatHistory`，历史对话图片可正常回看，加载时后台 `rehydrateImages()` 从本地文件重建 base64（IO 只读、主线程应用变更，与实时会话一致——AI 能继续「看到」历史图片）。删除/清空对话联动删除图片文件，`AiChatActivity.onCreate` 后台 `pruneOrphanImages()` 清理无引用残留文件。
+
+2. **上下文自动压缩**（新功能）：新增 `ai/ContextCompressor.kt`，以模型高级设置中的 `maxInputTokens`（上下文窗口）为上限——token 估算（CJK≈1 token/字、其余≈4 字符/token、图片 1200 tokens/张、工具定义固定开销 2500）超过 **85%** 触发压缩：保留 system 与最近消息（至少 2 条），旧消息由 AI 总结为中文摘要（保留包名/模式/关键参数/待办），压缩后目标降至 **50%**，被压缩区间的旧图片 base64 随之释放。摘要失败降级为直接丢弃旧消息。摘要消息以 `isSummary` 标记：UI 用 AI 气泡样式展示、协议上以 user 角色发送（`[前文摘要]` 前缀），并写入历史使压缩态跨会话保持。每次发请求前检查，压缩过程经 `tvToolStatus` 提示、完成后 Toast 显示压缩前后估算量。
+
+3. **切换模型后主页面不更新**：`MainActivity.onResume()` 补充 `renderAiModelStatus()`，从 AI 对话页切模型返回后「当前模型」即时刷新，无需重启应用。
+
+**顺手修复：** `buildAiMessages()` 跳过「思考中」loading 占位消息（此前会作为空 assistant 消息发给 API）。
+
+**新增/修改文件：**
+
+| 文件 | 变更 |
+|------|------|
+| `app/.../ai/ContextCompressor.kt` | 新建：token 估算 + 阈值判断 + AI 摘要压缩（降级硬截断） |
+| `app/.../ai/AiChatActivity.kt` | 图片转存本地 + 附件持久化/重水化 + 压缩集成（`applyCompression`）+ loading 占位过滤 |
+| `app/.../ai/ChatHistory.kt` | `Message` 增加 `attachments`/`isSummary`；删除/清空联动删图片；`pruneOrphanImages()` |
+| `app/.../ui/MainActivity.kt` | `onResume()` 增加 `renderAiModelStatus()` |
+
+---
+
+### v2.4.4（2026-09-15）— GitHub Actions 自动构建流程
+
+**新增 CI/CD 能力：**
+
+1. **GitHub Actions 工作流**（`.github/workflows/build-and-release.yml`）：
+   - 支持打标签自动触发：推送 `v*` 格式标签自动构建并发布
+   - 支持手动触发：在 Actions 页面选择工作流手动运行
+   - 自动构建 Debug 和 Release 两个版本
+   - 自动创建 Release 草稿或直接发布
+   - 自动附加 APK 文件到 Release
+
+2. **签名密钥管理**（`.github/KEYSTORE_SETUP.md`）：
+   - 提供完整的 keystore 生成和配置指南
+   - 通过 GitHub Secrets 安全存储 Base64 编码的 keystore
+   - 工作流自动解码并使用签名密钥
+
+3. **项目文档更新**：
+   - README.md 添加构建状态徽章和自动构建说明
+   - Code_Wiki.md 补充 CI/CD 配置和使用指南
+   - 提供详细的签名密钥配置步骤
+
+**新增文件：**
+
+| 文件 | 说明 |
+|------|------|
+| `.github/workflows/build-and-release.yml` | GitHub Actions 工作流：自动构建 + 发布 |
+| `.github/KEYSTORE_SETUP.md` | 签名密钥配置指南 |
+
+**修改文件：**
+
+| 文件 | 变更 |
+|------|------|
+| `README.md` | 添加构建状态徽章、自动构建说明、签名配置步骤 |
+| `Code_Wiki.md` | 新增 11.3 节：GitHub Actions 自动构建完整文档 |
+
+**仓库地址：** https://github.com/achzehn/magic_window
+
+**工作流链接：** https://github.com/achzehn/magic_window/actions/workflows/build-and-release.yml
+
+---
 
 **Bug 修复：**
 
