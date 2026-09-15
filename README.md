@@ -1,5 +1,10 @@
 # 完美横屏（Magic Window Adapter）
 
+[![Build and Release](https://github.com/achzehn/magic_window/actions/workflows/build-and-release.yml/badge.svg)](https://github.com/achzehn/magic_window/actions/workflows/build-and-release.yml)
+[![Release](https://img.shields.io/github/v/release/achzehn/magic_window)](https://github.com/achzehn/magic_window/releases)
+[![Downloads](https://img.shields.io/github/downloads/achzehn/magic_window/total)](https://github.com/achzehn/magic_window/releases)
+[![License](https://img.shields.io/github/license/achzehn/magic_window)](https://github.com/achzehn/magic_window/blob/main/LICENSE)
+
 LSPosed 模块，用于将小米 HyperOS / MIUI 的三套大屏适配机制（平行窗口、固定横屏、通用全屏）以及界面自动适配（autoui）开放给用户自由配置，打破系统仅对内置名单生效的限制。
 
 ## 功能特性
@@ -132,11 +137,7 @@ lsposed_module/
 
 ## 构建说明
 
-### 1. 配置国内镜像（推荐）
-
-项目已配置国内镜像源，无需额外配置。
-
-### 2. 构建命令
+### 本地构建
 
 ```bash
 cd lsposed_module
@@ -150,6 +151,59 @@ cd lsposed_module
 # 检查依赖
 .\gradlew dependencies
 ```
+
+### GitHub Actions 自动构建
+
+项目已配置 GitHub Actions 自动构建，支持两种方式：
+
+#### 1. 打标签触发（推荐）
+
+```bash
+# 创建并推送标签
+git tag v2.4.0
+git push origin v2.4.0
+```
+
+推送标签后会自动触发构建并发布 Release。
+
+#### 2. 手动触发
+
+进入 Actions 标签页，选择 "Build and Release" 工作流，点击 "Run workflow"：
+- 输入版本号（如 `2.4.0`）
+- 选择发布类型：
+  - **Draft**：创建草稿，需要手动发布
+  - **Release**：直接发布
+
+#### 配置签名密钥
+
+首次使用前需要配置签名密钥：
+
+1. 生成 keystore（如果还没有）：
+   ```bash
+   keytool -genkey -v \
+     -keystore lsposed_module/magicwindow.keystore \
+     -alias magicwindow \
+     -keyalg RSA \
+     -keysize 2048 \
+     -validity 10000 \
+     -storepass magicwindow123 \
+     -keypass magicwindow123 \
+     -dname "CN=MagicWindow, OU=Development, O=LSPosed, L=Unknown, ST=Unknown, C=CN"
+   ```
+
+2. 转换为 Base64：
+   ```bash
+   # Windows PowerShell
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("lsposed_module\magicwindow.keystore"))
+   ```
+
+3. 添加到 GitHub Secrets：
+   - 进入仓库：https://github.com/achzehn/magic_window/settings/secrets/actions
+   - 添加 Secret：
+     - Name: `KEYSTORE_BASE64`
+     - Value: 粘贴 Base64 字符串
+
+详细配置请参考 [.github/KEYSTORE_SETUP.md](.github/KEYSTORE_SETUP.md)
 
 ### 3. 安装
 
