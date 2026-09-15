@@ -3,6 +3,7 @@ package com.github.lsposed.magicwindow.ai
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 /**
  * 聊天历史持久化管理。
@@ -12,10 +13,20 @@ object ChatHistory {
     private const val PREFS = "ai_chat_history"
     private const val KEY_CONVERSATIONS = "conversations"
 
+    /** 附件元数据：图片只存本地文件路径（base64 太大不进 SharedPreferences） */
+    data class AttachmentMeta(
+        val type: String,       // "image" | "text"
+        val name: String,
+        val localPath: String? = null
+    )
+
     data class Message(
         val role: String,       // "user" | "assistant"
         val content: String,
-        val timestamp: Long = System.currentTimeMillis()
+        val timestamp: Long = System.currentTimeMillis(),
+        val attachments: List<AttachmentMeta> = emptyList(),
+        /** 该条消息为上下文压缩摘要（展示用 AI 样式，协议上作为 user 发送） */
+        val isSummary: Boolean = false
     )
 
     data class Conversation(
@@ -38,6 +49,18 @@ object ChatHistory {
                         put("role", msg.role)
                         put("content", msg.content)
                         put("timestamp", msg.timestamp)
+                        if (msg.isSummary) put("isSummary", true)
+                        if (msg.attachments.isNotEmpty()) {
+                            put("attachments", JSONArray().apply {
+                                msg.attachments.forEach { att ->
+                                    put(JSONObject().apply {
+                                        put("type", att.type)
+                                        put("name", att.name)
+                                        att.localPath?.let { put("localPath", it) }
+                                    })
+                                }
+                            })
+                        }
                     })
                 }
             })
@@ -45,18 +68,31 @@ object ChatHistory {
 
         companion object {
             fun fromJson(o: JSONObject): Conversation {
-                val msgs = mutableListOf<Message>()
-                val arr = o.optJSONArray("messages")
-                if (arr != null) {
-                    for (i in 0 until arr.length()) {
-                        val m = arr.getJSONObject(i)
-                        msgs.add(Message(
-                            role = m.getString("role"),
-                            content = m.getString("content"),
-                            timestamp = m.optLong("timestamp", 0)
-                        ))
+            val msgs = mutableListOf<Message>()
+            val arr = o.optJSONArray("messages")
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val m = arr.getJSONObject(i)
+                    val atts = mutableListOf<AttachmentMeta>()
+                    m.optJSONArray("attachments")?.let { attArr ->
+                        for (j in 0 until attArr.length()) {
+                            val a = attArr.getJSONObject(j)
+                            atts.add(AttachmentMeta(
+                                type = a.optString("type", ""),
+                                name = a.optString("name", ""),
+                                localPath = a.optString("localPath", "").ifEmpty { null }
+                            ))
+                        }
                     }
+                    msgs.add(Message(
+                        role = m.getString("role"),
+                        content = m.getString("content"),
+                        timestamp = m.optLong("timestamp", 0),
+                        attachments = atts,
+                        isSummary = m.optBoolean("isSummary", false)
+                    ))
                 }
+            }
                 return Conversation(
                     id = o.optString("id", java.util.UUID.randomUUID().toString()),
                     title = o.optString("title", ""),
@@ -115,16 +151,38 @@ object ChatHistory {
         saveAll(context, list)
     }
 
-    /** 删除对话 */
+    /** 删除对话（联动删除对话内图片附件的本地文件） */
     fun delete(context: Context, conversationId: String) {
         val list = getAll(context).toMutableList()
+        list.firstOrNull { it.id == conversationId }?.let { deleteImageFiles(it) }
         list.removeAll { it.id == conversationId }
         saveAll(context, list)
     }
 
-    /** 清空所有对话 */
+    /** 清空所有对话（联动清空图片附件目录） */
     fun clearAll(context: Context) {
+        getAll(context).forEach { deleteImageFiles(it) }
         prefs(context).edit().remove(KEY_CONVERSATIONS).apply()
+    }
+
+    /** 清理未被任何对话引用的孤儿图片文件（如发送后未保存历史就退出） */
+    fun pruneOrphanImages(context: Context) {
+        val dir = File(context.filesDir, "chat_images")
+        val files = dir.listFiles() ?: return
+        val referenced = getAll(context)
+            .flatMap { it.messages }
+            .flatMap { it.attachments }
+            .mapNotNull { it.localPath }
+            .toSet()
+        files.forEach { f ->
+            if (f.absolutePath !in referenced) runCatching { f.delete() }
+        }
+    }
+
+    private fun deleteImageFiles(conv: Conversation) {
+        conv.messages.flatMap { it.attachments }
+            .mapNotNull { it.localPath }
+            .forEach { runCatching { File(it).delete() } }
     }
 
     /** 生成对话标题（取前20个字符） */

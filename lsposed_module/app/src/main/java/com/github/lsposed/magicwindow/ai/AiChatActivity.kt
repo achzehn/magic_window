@@ -53,7 +53,9 @@ class AiChatActivity : AppCompatActivity() {
         val type: String, // "image" | "text"
         val content: String? = null, // 文本文件内容
         /** 图片压缩后的 data URI（data:image/...;base64,...），后台处理完成才有值 */
-        val imageDataUri: String? = null
+        val imageDataUri: String? = null,
+        /** 图片转存到应用私有目录后的本地路径（缩略图/预览/历史恢复都走本地文件） */
+        val localPath: String? = null
     )
 
     data class MessageUi(
@@ -62,7 +64,9 @@ class AiChatActivity : AppCompatActivity() {
         val toolCalls: String? = null,
         val attachments: List<Attachment> = emptyList(),
         /** 该条助手消息为请求失败提示，展示「重试」按钮 */
-        var isError: Boolean = false
+        var isError: Boolean = false,
+        /** 上下文压缩摘要消息：UI 用 AI 样式展示，发给模型时作为 user 角色 */
+        val isSummary: Boolean = false
     )
 
     // 文件选择器
@@ -125,7 +129,10 @@ class AiChatActivity : AppCompatActivity() {
         updateModelSwitchButton()
         binding.btnModelSwitch.setOnClickListener { showModelSwitchDialog() }
 
-        // 欢迎信息（tvWelcome 和 chipGroup 已从布局中移除）
+        // 清理未被任何对话引用的残留图片（发送后未保存历史就退出等情况）
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            ChatHistory.pruneOrphanImages(this@AiChatActivity)
+        }
     }
 
     private fun setupModelSelector() {
@@ -174,10 +181,61 @@ class AiChatActivity : AppCompatActivity() {
         currentConversation = conv
         messages.clear()
         conv.messages.forEach { msg ->
-            messages.add(MessageUi(msg.role, msg.content))
+            val atts = msg.attachments.map { meta ->
+                Attachment(
+                    uri = meta.localPath?.let { Uri.fromFile(java.io.File(it)) } ?: Uri.EMPTY,
+                    name = meta.name,
+                    type = meta.type,
+                    localPath = meta.localPath
+                )
+            }
+            // 压缩摘要消息：展示用 AI 样式，协议角色恢复为 user（与 buildAiMessages 对应）
+            messages.add(
+                MessageUi(
+                    role = if (msg.isSummary) "assistant" else msg.role,
+                    content = msg.content,
+                    attachments = atts,
+                    isSummary = msg.isSummary
+                )
+            )
         }
         adapter.notifyDataSetChanged()
         binding.recycler.scrollToPosition(messages.size - 1)
+        // 后台重水化图片 base64，后续请求能把历史图片重新发给模型（与实时会话行为一致）
+        lifecycleScope.launch {
+            // IO 线程只读文件，回到主线程再改 messages，避免与列表绑定并发
+            val hydrated = withContext(Dispatchers.IO) { rehydrateImages() }
+            if (hydrated.isNotEmpty()) {
+                hydrated.forEach { (idx, atts) ->
+                    if (idx < messages.size) messages[idx] = messages[idx].copy(attachments = atts)
+                }
+                adapter.notifyDataSetChanged()
+            }
+        }
+    }
+
+    /** 为缺少 base64 的图片附件从本地文件读取 data URI；返回 消息下标→新附件列表（纯 IO，不改 UI 状态） */
+    private fun rehydrateImages(): Map<Int, List<Attachment>> {
+        val out = mutableMapOf<Int, List<Attachment>>()
+        messages.forEachIndexed { idx, msg ->
+            if (msg.attachments.none { it.type == "image" && it.imageDataUri == null }) return@forEachIndexed
+            val newAtts = msg.attachments.map { att ->
+                if (att.type == "image" && att.imageDataUri == null && att.localPath != null) {
+                    val file = java.io.File(att.localPath)
+                    if (file.exists()) {
+                        val mime = when (file.extension.lowercase()) {
+                            "png" -> "image/png"
+                            "webp" -> "image/webp"
+                            else -> "image/jpeg"
+                        }
+                        val b64 = android.util.Base64.encodeToString(file.readBytes(), android.util.Base64.NO_WRAP)
+                        att.copy(imageDataUri = "data:$mime;base64,$b64")
+                    } else att
+                } else att
+            }
+            out[idx] = newAtts
+        }
+        return out
     }
 
     private fun showWelcome() {
@@ -242,15 +300,21 @@ class AiChatActivity : AppCompatActivity() {
         val att = Attachment(uri, name, "image")
         pendingAttachments.add(att)
         updateAttachmentPreview()
-        // 后台压缩 + base64，避免大图撑爆请求体；完成前发送会被拦截提示
+        // 后台转存私有目录 + base64：content:// URI 的临时授权会过期、
+        // 云图/跨空间相册直接解码不可靠，转存后缩略图/预览/上传全部走本地文件
         lifecycleScope.launch {
-            val dataUri = withContext(Dispatchers.IO) {
-                runCatching { readImageAsDataUri(uri) }.getOrNull()
+            val imported = withContext(Dispatchers.IO) {
+                runCatching { importImage(uri) }
+                    .onFailure { android.util.Log.w("AiChat", "图片导入失败: $uri", it) }
+                    .getOrNull()
             }
             val idx = pendingAttachments.indexOf(att)
             if (idx >= 0) {
-                if (dataUri != null) {
-                    pendingAttachments[idx] = att.copy(imageDataUri = dataUri)
+                if (imported != null) {
+                    pendingAttachments[idx] = att.copy(
+                        imageDataUri = imported.second,
+                        localPath = imported.first
+                    )
                 } else {
                     pendingAttachments.removeAt(idx)
                     Toast.makeText(this@AiChatActivity, "图片「$name」读取失败", Toast.LENGTH_SHORT).show()
@@ -260,8 +324,11 @@ class AiChatActivity : AppCompatActivity() {
         }
     }
 
-    /** 读取图片并降采样压缩为 data URI，最长边不超过 [MAX_IMAGE_DIMEN] */
-    private fun readImageAsDataUri(uri: Uri): String {
+    /**
+     * 读取图片并降采样转存到 filesDir/chat_images/，最长边不超过 [MAX_IMAGE_DIMEN]。
+     * @return localPath to data URI（直接编码本地文件字节，避免二次解码）
+     */
+    private fun importImage(uri: Uri): Pair<String, String> {
         val mime = contentResolver.getType(uri) ?: "image/jpeg"
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         contentResolver.openInputStream(uri)?.use {
@@ -284,8 +351,22 @@ class AiChatActivity : AppCompatActivity() {
         val bytes = java.io.ByteArrayOutputStream().also {
             bmp.compress(format, 85, it)
         }.toByteArray()
+        bmp.recycle()
+        val ext = when (format) {
+            Bitmap.CompressFormat.PNG -> "png"
+            Bitmap.CompressFormat.WEBP -> "webp"
+            else -> "jpg"
+        }
+        val outMime = when (format) {
+            Bitmap.CompressFormat.PNG -> "image/png"
+            Bitmap.CompressFormat.WEBP -> "image/webp"
+            else -> "image/jpeg"
+        }
+        val dir = java.io.File(filesDir, "chat_images").apply { mkdirs() }
+        val file = java.io.File(dir, "${java.util.UUID.randomUUID()}.$ext")
+        file.writeBytes(bytes)
         val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-        return "data:$mime;base64,$b64"
+        return file.absolutePath to "data:$outMime;base64,$b64"
     }
 
     private fun handleFilePicked(uri: Uri) {
@@ -341,7 +422,7 @@ class AiChatActivity : AppCompatActivity() {
                             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                         scaleType = ImageView.ScaleType.CENTER_CROP
                     })
-                    decodeThumb(att.uri, 128)?.let { (card.getChildAt(0) as ImageView).setImageBitmap(it) }
+                    decodeThumb(att, 128)?.let { (card.getChildAt(0) as ImageView).setImageBitmap(it) }
                     root.addView(card)
                 } else {
                     // 文本文件 chip
@@ -379,32 +460,45 @@ class AiChatActivity : AppCompatActivity() {
         }
     }
 
-    /** 解码图片缩略图（带缓存），失败返回 null */
-    private fun decodeThumb(uri: Uri, target: Int = 256): android.graphics.Bitmap? {
-        val key = "$uri#$target"
+    /** 解码附件缩略图（带缓存）：优先本地转存文件，失败返回 null */
+    private fun decodeThumb(att: Attachment, target: Int = 256): android.graphics.Bitmap? {
+        val local = att.localPath?.let { java.io.File(it) }?.takeIf { it.exists() }
+        val key = "${local?.absolutePath ?: att.uri}#$target"
         thumbCache.get(key)?.let { return it }
         val bmp = runCatching {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, bounds)
-            } ?: return null
-            var sample = 1
-            while (bounds.outWidth / (sample * 2) >= target && bounds.outHeight / (sample * 2) >= target) {
-                sample *= 2
-            }
-            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-            contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, opts)
-            }
+            if (local != null) decodeSampled({ BitmapFactory.decodeFile(local.absolutePath, it) }, target)
+            else decodeSampled({ opts ->
+                contentResolver.openInputStream(att.uri)?.use {
+                    BitmapFactory.decodeStream(it, null, opts)
+                }
+            }, target)
+        }.onFailure {
+            android.util.Log.w("AiChat", "缩略图解码失败: $key", it)
         }.getOrNull()
         if (bmp != null) thumbCache.put(key, bmp)
         return bmp
     }
 
+    /** 通用的「边界探测 + 采样解码」流程，decode 闭包返回位图 */
+    private fun decodeSampled(
+        decode: (BitmapFactory.Options?) -> android.graphics.Bitmap?,
+        target: Int
+    ): android.graphics.Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        decode(bounds) // bounds-only 模式位图必为 null，尺寸写在 options 里
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= target &&
+            bounds.outHeight / (sample * 2) >= target) {
+            sample *= 2
+        }
+        return decode(BitmapFactory.Options().apply { inSampleSize = sample })
+    }
+
     /** 全屏预览图片 */
-    private fun showImagePreview(uri: Uri) {
+    private fun showImagePreview(att: Attachment) {
         lifecycleScope.launch {
-            val bmp = withContext(Dispatchers.IO) { decodeThumb(uri, 1024) }
+            val bmp = withContext(Dispatchers.IO) { decodeThumb(att, 1024) }
             if (bmp == null) {
                 Toast.makeText(this@AiChatActivity, "图片加载失败", Toast.LENGTH_SHORT).show()
                 return@launch
@@ -453,18 +547,21 @@ class AiChatActivity : AppCompatActivity() {
         addMessage(MessageUi("user", displayText, attachments = pendingAttachments.toList()))
         binding.etInput.setText("")
         val sentText = text
+        val sentAttachments = pendingAttachments.toList()
         pendingAttachments.clear()
         updateAttachmentPreview()
 
-        launchRequest(sentText.ifEmpty { displayText })
+        launchRequest(sentText.ifEmpty { displayText }, sentAttachments)
     }
 
     /**
      * 发起一次流式 AI 请求；发送与失败重试共用。
      * token 逐段到达，实时写入气泡，同时解决弱网下长时间无响应被中断的问题。
+     * 发送前检查上下文占用，达到阈值（模型高级设置 maxInputTokens 的 85%）先压缩前文。
      * @param userText 本次用户消息的纯文本，成功后写入历史（重试时从消息列表回推）
+     * @param attachments 本次用户消息的附件（写入历史用，重试时从消息列表回推）
      */
-    private fun launchRequest(userText: String) {
+    private fun launchRequest(userText: String, attachments: List<Attachment> = emptyList()) {
         isGenerating = true
         streamPos = -1
         binding.fabSend.isEnabled = true
@@ -474,7 +571,25 @@ class AiChatActivity : AppCompatActivity() {
 
         genJob = lifecycleScope.launch {
             try {
-                val aiMessages = buildAiMessages()
+                var aiMessages = buildAiMessages()
+                // 上下文达到阈值 → 先压缩（AI 摘要替换旧消息，旧图片随之释放）
+                val cfg = ModelManager.getCurrent(this@AiChatActivity)
+                if (cfg != null && ContextCompressor.shouldCompress(aiMessages, cfg)) {
+                    updateToolStatus("上下文过长，正在压缩前文…")
+                    val result = ContextCompressor.compress(aiMessages, cfg) { msgs ->
+                        aiClient.complete(msgs)
+                    }
+                    updateToolStatus(null)
+                    if (result.removedCount > 0) {
+                        applyCompression(result)
+                        aiMessages = result.messages
+                        Toast.makeText(
+                            this@AiChatActivity,
+                            "上下文已达阈值，已压缩 ${result.removedCount} 条前文（约 ${result.beforeTokens / 1000}K → ${result.afterTokens / 1000}K tokens）",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
                 val reply = aiClient.chatStream(
                     aiMessages,
                     onDelta = { piece ->
@@ -501,9 +616,14 @@ class AiChatActivity : AppCompatActivity() {
                     addMessage(MessageUi("assistant", "（模型未返回内容）", isError = true))
                 }
 
-                // 保存到历史
+                // 保存到历史（附件只存元数据，图片 base64 从本地文件恢复）
                 currentConversation?.let { conv ->
-                    conv.messages.add(ChatHistory.Message("user", userText))
+                    conv.messages.add(ChatHistory.Message(
+                        "user", userText,
+                        attachments = attachments.map {
+                            ChatHistory.AttachmentMeta(it.type, it.name, it.localPath)
+                        }
+                    ))
                     conv.messages.add(ChatHistory.Message("assistant", reply))
                     ChatHistory.save(this@AiChatActivity, conv)
                 }
@@ -575,15 +695,44 @@ class AiChatActivity : AppCompatActivity() {
             messages.removeAt(errorPosition)
             adapter.notifyItemRemoved(errorPosition)
         }
-        val lastUserText = messages.lastOrNull { it.role == "user" }?.content
+        val lastUser = messages.lastOrNull { it.role == "user" && !it.isSummary }
             ?: return
-        launchRequest(lastUserText)
+        launchRequest(lastUser.content, lastUser.attachments)
+    }
+
+    /**
+     * 压缩生效到 UI 与历史：移除最早的被压缩消息，头部插入一条摘要消息。
+     * 摘要持久化后，恢复历史对话时上下文仍保持压缩态。
+     */
+    private fun applyCompression(result: ContextCompressor.Result) {
+        // 三处（本轮请求 / UI 展示 / 历史持久化）保持同一文本，保证后续每轮上下文一致
+        val summaryText = "[前文摘要] " + (result.summary ?: "（摘要生成失败，最早的消息已直接丢弃）")
+        val summaryUi = MessageUi(
+            role = "assistant",
+            content = summaryText,
+            isSummary = true
+        )
+        val removeCount = result.removedCount.coerceAtMost(messages.size)
+        repeat(removeCount) { messages.removeAt(0) }
+        messages.add(0, summaryUi)
+        adapter.notifyDataSetChanged()
+
+        currentConversation?.let { conv ->
+            repeat(removeCount.coerceAtMost(conv.messages.size)) { conv.messages.removeAt(0) }
+            conv.messages.add(0, ChatHistory.Message(
+                role = "user",
+                content = summaryText,
+                isSummary = true
+            ))
+            ChatHistory.save(this, conv)
+        }
     }
 
     private fun buildAiMessages(): List<AiClient.ChatMessage> {
         val result = mutableListOf<AiClient.ChatMessage>()
         result.add(AiClient.ChatMessage("system", AiSystemPrompt.SYSTEM_PROMPT))
         messages.forEach { msg ->
+            if (msg.toolCalls == "loading") return@forEach // 跳过「思考中」占位
             // 图片以多模态形式真正发送；未能编码成功的图片给出文字提示
             val hasFailedImage = msg.attachments.any { it.type == "image" && it.imageDataUri == null }
             val fullContent = buildString {
@@ -601,7 +750,12 @@ class AiChatActivity : AppCompatActivity() {
                 if (hasFailedImage) append("\n\n[有图片读取失败，未能上传]")
             }
             val images = msg.attachments.mapNotNull { it.imageDataUri }
-            result.add(AiClient.ChatMessage(msg.role, fullContent, images = images))
+            // 压缩摘要消息在协议上作为 user 发送（UI 展示为 AI 样式）
+            result.add(AiClient.ChatMessage(
+                if (msg.isSummary) "user" else msg.role,
+                fullContent,
+                images = images
+            ))
         }
         return result
     }
@@ -750,8 +904,8 @@ class AiChatActivity : AppCompatActivity() {
                                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                             scaleType = ImageView.ScaleType.CENTER_CROP
                         })
-                        decodeThumb(att.uri)?.let { (card.getChildAt(0) as ImageView).setImageBitmap(it) }
-                        card.setOnClickListener { showImagePreview(att.uri) }
+                        decodeThumb(att)?.let { (card.getChildAt(0) as ImageView).setImageBitmap(it) }
+                        card.setOnClickListener { showImagePreview(att) }
                         vh.layoutUserAttach.addView(card)
                     }
 

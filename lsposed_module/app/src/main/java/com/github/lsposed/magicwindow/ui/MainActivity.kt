@@ -734,6 +734,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         renderStatus()
         renderMcpState()
+        // 从 AI 对话页切换模型返回后，同步刷新「当前模型」显示
+        renderAiModelStatus()
     }
 
     private fun renderMcpState() {

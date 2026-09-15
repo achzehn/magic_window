@@ -796,3 +796,26 @@ AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug
 2. **MCP 长连接协议错位（McpServer.serve）**：请求体用单次 `reader.read(buf)` 读取，TCP 分段时读不满 contentLength，残留字节被误当下一个请求解析 → 间歇性 `list tools failed` 断连。改为循环读满后再处理。
 
 注：pad 未 root（root_available=false），get_crash_log 的 su 白名单链路需在 root 设备上验证。
+
+---
+
+### v2.4.3（2026-09-15）— AI 对话三项修复：图片显示 / 上下文压缩 / 模型状态同步
+
+**Bug 修复：**
+
+1. **AI 对话上传图片不显示**（灰块 + 「图片加载失败」）：根因是选图后直接对 `content://` URI 解码——临时授权会过期、云图/跨空间相册直接解码不可靠、部分 provider 流不稳定。修复为选取后立即 `importImage()` 转存到 `filesDir/chat_images/`（降采样 ≤1280px，一次解码同时产出本地文件与 base64），缩略图/全屏预览/上传全部改走本地文件；解码失败补 `Log.w` 日志。附件元数据（type/name/localPath，不含 base64）随消息持久化到 `ChatHistory`，历史对话图片可正常回看，加载时后台 `rehydrateImages()` 从本地文件重建 base64（IO 只读、主线程应用变更，与实时会话一致——AI 能继续「看到」历史图片）。删除/清空对话联动删除图片文件，`AiChatActivity.onCreate` 后台 `pruneOrphanImages()` 清理无引用残留文件。
+
+2. **上下文自动压缩**（新功能）：新增 `ai/ContextCompressor.kt`，以模型高级设置中的 `maxInputTokens`（上下文窗口）为上限——token 估算（CJK≈1 token/字、其余≈4 字符/token、图片 1200 tokens/张、工具定义固定开销 2500）超过 **85%** 触发压缩：保留 system 与最近消息（至少 2 条），旧消息由 AI 总结为中文摘要（保留包名/模式/关键参数/待办），压缩后目标降至 **50%**，被压缩区间的旧图片 base64 随之释放。摘要失败降级为直接丢弃旧消息。摘要消息以 `isSummary` 标记：UI 用 AI 气泡样式展示、协议上以 user 角色发送（`[前文摘要]` 前缀），并写入历史使压缩态跨会话保持。每次发请求前检查，压缩过程经 `tvToolStatus` 提示、完成后 Toast 显示压缩前后估算量。
+
+3. **切换模型后主页面不更新**：`MainActivity.onResume()` 补充 `renderAiModelStatus()`，从 AI 对话页切模型返回后「当前模型」即时刷新，无需重启应用。
+
+**顺手修复：** `buildAiMessages()` 跳过「思考中」loading 占位消息（此前会作为空 assistant 消息发给 API）。
+
+**新增/修改文件：**
+
+| 文件 | 变更 |
+|------|------|
+| `app/.../ai/ContextCompressor.kt` | 新建：token 估算 + 阈值判断 + AI 摘要压缩（降级硬截断） |
+| `app/.../ai/AiChatActivity.kt` | 图片转存本地 + 附件持久化/重水化 + 压缩集成（`applyCompression`）+ loading 占位过滤 |
+| `app/.../ai/ChatHistory.kt` | `Message` 增加 `attachments`/`isSummary`；删除/清空联动删图片；`pruneOrphanImages()` |
+| `app/.../ui/MainActivity.kt` | `onResume()` 增加 `renderAiModelStatus()` |
