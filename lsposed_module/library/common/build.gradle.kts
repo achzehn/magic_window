@@ -24,7 +24,3 @@ android {
         abortOnError = false
     }
 }
-
-dependencies {
-    compileOnly(libs.xposed.api)
-}

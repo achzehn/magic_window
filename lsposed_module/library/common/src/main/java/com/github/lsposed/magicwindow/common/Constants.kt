@@ -10,17 +10,14 @@ object Constants {
 
     const val MODULE_PACKAGE = "com.github.lsposed.magicwindow"
     const val SYSTEM_PACKAGE = "android"
-    const val LOG_TAG = "MagicWindow"
 
     /** 模块配置文件名（LSPosed `xposedsharedprefs` 托管，system_server 侧用 XSharedPreferences 读） */
     const val PREFS_NAME = "magic_window_config"
     const val KEY_RULES = "app_rules"
 
     // ── 配置热更新通知 ──
-    // prefs 目录带 LSPosed 的 SELinux 类别标签，system_server 挂 FileObserver 收不到事件，
-    // 因此 App 保存后显式发广播通知 hook 侧重读；签名权限保证只有本模块能发。
+    // App 保存后显式发广播通知 hook 侧重读；system_server 侧在接收端用 Intent.getSentFromPackage 校验发送者
     const val ACTION_CONFIG_CHANGED = "com.github.lsposed.magicwindow.ACTION_CONFIG_CHANGED"
-    const val PERMISSION_CONFIG_CHANGED = "com.github.lsposed.magicwindow.permission.CONFIG_CHANGED"
 
     // ── 模块自身：激活状态回显 ──
     const val CLASS_MODULE_STATUS = "com.github.lsposed.magicwindow.ModuleStatus"
@@ -74,7 +71,6 @@ object Constants {
     const val F_LAST_CLOUD_CONFIG_VERSION = "mLastCloudConfigVersion"
     const val M_UPDATE_CLOUD_CONFIG_FILE = "updateAutoUICloudConfigFile"
     const val M_UPDATE_FROM_CLOUD_FILE = "updateAutoUIConfigFromCloudFile"
-    const val M_CREATE_CLOUD_AUTO_UI_RULE = "createCloudAutoUIRule"
     const val M_LOAD_PACKAGE = "loadPackage"
 
     const val CLOUD_AUTO_UI_FILE = "cloudFeature_autoui_list.xml"

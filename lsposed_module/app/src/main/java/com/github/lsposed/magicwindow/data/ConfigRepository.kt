@@ -28,10 +28,6 @@ object ConfigRepository {
         }.getOrElse {
             context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
         }
-        reload()
-    }
-
-    fun reload() {
         rules.clear()
         rules.putAll(RuleCodec.decodeRules(prefs.getString(Constants.KEY_RULES, null)))
     }
@@ -80,7 +76,7 @@ object ConfigRepository {
     /**
      * 通知 hook 侧热重载。
      * FileObserver 在 system_server 上收不到 LSPosed prefs 目录的事件（SELinux 类别标签），
-     * 所以保存后显式发广播；system_server 侧用签名权限校验发送者。
+     * 所以保存后显式发广播；system_server 侧在接收端用 Intent.getSentFromPackage 校验发送者。
      * 延迟 500ms 是给 LSPosed 守护进程留出把 prefs 同步到托管目录的时间。
      */
     private fun notifyHookSide() {

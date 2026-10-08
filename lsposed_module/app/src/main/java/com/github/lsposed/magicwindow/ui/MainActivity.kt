@@ -510,6 +510,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                 val model = currentModels[position]
+                val isCurrent = ModelManager.getCurrent(this@MainActivity)?.id == model.id
                 val row = LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
@@ -524,8 +525,7 @@ class MainActivity : AppCompatActivity() {
                         0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
                     )
                     // 点击已启用且非当前的模型 → 设为当前模型
-                    val isCurrentModel = ModelManager.getCurrent(this@MainActivity)?.id == model.id
-                    if (model.enabled && !isCurrentModel) {
+                    if (model.enabled && !isCurrent) {
                         val clickBg = android.util.TypedValue()
                         theme.resolveAttribute(
                             android.R.attr.selectableItemBackground, clickBg, true
@@ -562,7 +562,6 @@ class MainActivity : AppCompatActivity() {
                 nameRow.addView(tvName)
 
                 // 当前模型标记
-                val isCurrent = ModelManager.getCurrent(this@MainActivity)?.id == model.id
                 if (isCurrent) {
                     nameRow.addView(TextView(this@MainActivity).apply {
                         text = "当前"
@@ -739,9 +738,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderMcpState() {
-        binding.swMcp.isChecked = McpServer.isRunning()
+        val running = McpServer.isRunning()
+        binding.swMcp.isChecked = running
         binding.tvMcpState.text =
-            if (McpServer.isRunning()) getString(R.string.mcp_running)
+            if (running) getString(R.string.mcp_running)
             else getString(R.string.mcp_stopped)
         binding.tvMcpLoopback.text = McpServer.loopbackUrl()
         binding.tvMcpLan.text = McpServer.localUrl()

@@ -19,12 +19,10 @@ import de.robv.android.xposed.XposedHelpers
 object SystemServerHooks {
 
     fun install(classLoader: ClassLoader) {
-        // 同步读一次；之后由「App 保存广播」事件驱动，热路径不碰磁盘
+        // 同步读一次；FileObserver 在 system_server 上收不到 LSPosed prefs 目录的事件
+        // （SELinux 类别标签），之后由「App 保存广播」事件驱动，热路径不碰磁盘
         RuleStore.loadNow()
-        RuleStore.startWatching()
 
-        // FileObserver 在 system_server 上收不到 LSPosed prefs 目录的事件（SELinux 类别标签），
-        // 热更新统一走 App 广播
         runCatching {
             val activityThread = XposedHelpers.callStaticMethod(
                 XposedHelpers.findClass("android.app.ActivityThread", classLoader),

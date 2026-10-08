@@ -433,14 +433,6 @@ object AiToolExecutor {
 
     // ── 辅助 ──────────────────────────────────────────
 
-    private fun toolDef(name: String, desc: String, schema: JSONObject): JSONObject =
-        JSONObject()
-            .put("type", "function")
-            .put("function", JSONObject()
-                .put("name", name)
-                .put("description", desc)
-                .put("parameters", schema))
-
     private fun errorResult(msg: String): String =
         JSONObject().put("error", msg).toString()
 }

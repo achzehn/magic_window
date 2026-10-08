@@ -355,7 +355,7 @@ object RuleDiagnostics {
     }
 
     /** 「包名/类名」还原为全类名（兼容 .相对类名 / 包名+全类名 / 纯全类名三种写法） */
-    private fun flattenPkgClass(value: String): String =
+    internal fun flattenPkgClass(value: String): String =
         if ('/' in value) {
             value.substringBefore('/') + "." + value.substringAfter('/').removePrefix(".")
         } else value

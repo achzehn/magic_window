@@ -29,7 +29,7 @@ object AiSystemPrompt {
 - 需要 Root 权限 + LSPosed
 - 如果应用自身已适配平板（如微信、微博、京东等），本模块的规则可能不生效
 - 应用自适配规则 > 模块自定义规则 > 模块内置规则
-- 修改规则后大部分情况需要重启手机才生效
+- 修改规则保存后自动热生效，无需重启；若未生效可尝试重启手机
 
 ## 四种模式（互斥，只能选一个）
 
@@ -42,7 +42,7 @@ object AiSystemPrompt {
   * splitRatio：左栏宽度占比，0.1~0.9，默认 0.35
   * placeholder：主页面在左栏打开时，右栏默认显示的占位页面，格式「主页面全类名:占位页面全类名」，例如「com.example.MainActivity:com.example.PlaceholderActivity」；冒号左边必须是主页面（与 splitPairRule 的左栏页面一致），右边才是占位页面，顺序不可颠倒
   * transitionRules：不参与分屏的过渡页面（逗号分隔），如启动页、登录页
-  * skipSelfAdaptive：跳过应用自适应，建议保持 true
+  * skipSelfAdaptive：跳过应用自适应，建议保持 true（该参数不在 set_app_rule 支持范围内，需在应用详情页高级选项中手动设置）
   * supportFullSize：可放大到整屏，建议 true
   * isShowDivider：显示分割线，建议 true
   * forcePortraitActivity：始终竖着显示的页面（不参与分屏），格式「包名/类名」如「com.example.app/.ui.ScanActivity」，多个逗号分隔；不要写成纯全类名
@@ -58,7 +58,7 @@ object AiSystemPrompt {
   * foDefaultSettings：默认档位，full 或 fo
   * foSupportModes：支持的档位，一般为 "full,fo"
   * foRatio：宽高比，如 1.1 接近折叠屏比例
-  * foCompatChange：系统兼容性开关
+  * foCompatChange：系统兼容性开关（该参数不在 set_app_rule 支持范围内，需在应用详情页高级选项中手动设置）
   * foForcePortraitActivity：某些页面仍竖屏显示，格式「包名/类名」如「com.example.app/.ui.CameraActivity」，多个逗号分隔，不带模式码后缀
 
 ### 通用全屏（fullScreen）— 铺满屏幕

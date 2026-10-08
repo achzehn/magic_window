@@ -22,7 +22,6 @@ import android.widget.Toast
 import com.github.lsposed.magicwindow.R
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
-import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.slider.Slider
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
 import com.google.android.material.textfield.TextInputEditText
@@ -63,34 +62,6 @@ object UiKit {
         }
         parent.addView(card)
         return card.findViewById(R.id.body)
-    }
-
-    /** 开关行 */
-    fun switchRow(
-        parent: ViewGroup,
-        title: String,
-        desc: String? = null,
-        checked: Boolean,
-        onChange: (Boolean) -> Unit
-    ): View {
-        val row = LayoutInflater.from(parent.context)
-            .inflate(R.layout.row_switch, parent, false)
-        row.disableStateSaving()
-        row.findViewById<TextView>(R.id.tvTitle).text = title
-        row.findViewById<TextView>(R.id.tvDesc).apply {
-            if (desc.isNullOrEmpty()) {
-                visibility = View.GONE
-            } else {
-                visibility = View.VISIBLE
-                text = desc
-            }
-        }
-        val sw = row.findViewById<MaterialSwitch>(R.id.sw)
-        sw.isChecked = checked
-        sw.setOnCheckedChangeListener { _, v -> onChange(v) }
-        row.setOnClickListener { sw.toggle() }
-        parent.addView(row)
-        return row
     }
 
     /** 追加一个可勾选标签容器，用来承载若干开关型配置 */

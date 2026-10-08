@@ -6,13 +6,10 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
-import android.widget.EditText
-import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -23,7 +20,6 @@ import kotlinx.coroutines.withContext
 import com.github.lsposed.magicwindow.R
 import com.github.lsposed.magicwindow.databinding.ActivityAiChatBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.textfield.TextInputEditText
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -113,8 +109,6 @@ class AiChatActivity : AppCompatActivity() {
         val convId = intent.getStringExtra("conversation_id")
         if (convId != null) {
             loadConversation(convId)
-        } else if (messages.isEmpty()) {
-            showWelcome()
         }
 
         // 生成中点击 = 停止；空闲时点击 = 发送
@@ -236,15 +230,6 @@ class AiChatActivity : AppCompatActivity() {
             out[idx] = newAtts
         }
         return out
-    }
-
-    private fun showWelcome() {
-        // tvWelcome 和 chipGroup 已从布局中移除
-    }
-
-    private fun quickAction(text: String) {
-        binding.etInput.setText(text)
-        sendMessage()
     }
 
     private fun updateModelSwitchButton() {
@@ -807,7 +792,6 @@ class AiChatActivity : AppCompatActivity() {
         currentConversation = null
         messages.clear()
         adapter.notifyDataSetChanged()
-        showWelcome()
     }
 
     private fun showHistoryDialog() {
@@ -841,7 +825,6 @@ class AiChatActivity : AppCompatActivity() {
     private fun clearChat() {
         messages.clear()
         adapter.notifyDataSetChanged()
-        showWelcome()
     }
 
     // ── 适配器 ──

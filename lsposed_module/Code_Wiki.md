@@ -57,7 +57,7 @@ magic_window/
         │   └── src/main/java/.../
         │       ├── Constants.kt       # 全局常量（类名/文件名/属性名）
         │       └── model/
-        │           ├── AppRule.kt     # 单应用规则数据模型（120+ 字段）
+        │           ├── AppRule.kt     # 单应用规则数据模型（78 字段）
         │           ├── WindowMode.kt  # 主模式枚举（OFF/FULL_SCREEN/EMBEDDING/FIXED_ORIENTATION）
         │           ├── RuleCodec.kt   # 规则集 JSON 编解码
         │           └── CloudXmlCodec.kt # 云控 XML 解析/序列化/合并
@@ -67,7 +67,7 @@ magic_window/
             └── src/main/java/.../
                 ├── XposedEntry.kt     # Xposed 入口（IXposedHookLoadPackage）
                 ├── SystemServerHooks.kt # system_server 注入编排
-                ├── RuleStore.kt       # 配置读取（内存快照 + FileObserver + 广播）
+                ├── RuleStore.kt       # 配置读取（内存快照 + 广播热更新）
                 ├── XLog.kt            # 统一日志出口
                 └── steps/
                     ├── PropertyGate.kt           # 第 0 步：总开关 property 校验
@@ -143,7 +143,6 @@ XposedEntry.handleLoadPackage("android")
   │
   ├─ SystemServerHooks.install(classLoader)
   │    ├─ RuleStore.loadNow()               # 同步读一次配置
-  │    ├─ RuleStore.startWatching()         # 启动配置变更监听
   │    ├─ ConfigSyncReceiver.register()     # 注册配置变更广播（延迟重试）
   │    │
   │    ├─ [第 0 步] PropertyGate.apply()    # 校验总开关 property，必要时兜底 hook
@@ -172,12 +171,12 @@ XposedEntry.handleLoadPackage("android")
 
 ### 4.1 `library:common` — 共享数据模型
 
-无外部依赖（仅 `compileOnly(xposed-api)`），被 app 和 libhook 两个模块共同依赖。
+无外部依赖，被 app 和 libhook 两个模块共同依赖。
 
 | 文件 | 职责 |
 |------|------|
 | `Constants.kt` | 全局常量：包名、类名、方法名、文件名、系统 property 键等，全部来自逆向实证 |
-| `AppRule.kt` | 核心数据模型，120+ 字段覆盖 embedding（25+属性）、fixedOrientation（15+属性）、autoui（6属性）以及比例档（3属性）。含 `toJson()` / `fromJson()` 序列化 |
+| `AppRule.kt` | 核心数据模型，78 字段覆盖 embedding（25+属性）、fixedOrientation（15+属性）、autoui（6属性）以及比例档（3属性）。含 `toJson()` / `fromJson()` 序列化 |
 | `WindowMode.kt` | 四种互斥模式的枚举：`OFF`、`FULL_SCREEN`、`EMBEDDING`、`FIXED_ORIENTATION`，key 与系统 JSON 对齐 |
 | `RuleCodec.kt` | 规则集的 JSON 数组编解码，App 与 Hook 两侧共用 |
 | `CloudXmlCodec.kt` | 云控 XML 的解析（`parse`）、合并（`mergeWith`）、序列化（`serialize`），以及 `AppRule` → 属性表的转换（`embeddingAttrsOf` / `fixedAttrsOf` / `fullScreenAttrsOf`） |
@@ -190,7 +189,7 @@ XposedEntry.handleLoadPackage("android")
 |------|------|
 | `XposedEntry.kt` | Xposed 入口（`IXposedHookLoadPackage`）。作用域：`android`（全量注入）、模块自身（回显激活状态） |
 | `SystemServerHooks.kt` | 注入编排器：按顺序调度第 0 步 → 捕获 ClassLoader → autoui 注入 → embedding/fixed 注入，并注册配置变更热重载 |
-| `RuleStore.kt` | 配置读取层：基于 `XSharedPreferences` 的内存快照，FileObserver / 广播驱动热更新，热路径绝不做文件 IO |
+| `RuleStore.kt` | 配置读取层：基于 `XSharedPreferences` 的内存快照，App 保存广播驱动热更新（FileObserver 在 system_server 上收不到事件，已移除监听路径），热路径绝不做文件 IO |
 | `XLog.kt` | 统一日志：写入 `XposedBridge.log`，仅 info / error 两级 |
 
 **steps/ 子包（注入步骤）：**
@@ -214,7 +213,7 @@ XposedEntry.handleLoadPackage("android")
 | `AppListActivity.kt` (211行) | 应用列表：搜索/筛选（全部/已设置/被系统禁用/已安装/系统应用）、长按进入多选批量操作（套用模式/清除设置） |
 | `AppDetailActivity.kt` (979行) | 应用详情：完整的 45+ 配置项表单，支持简单/高级切换、模式互斥联动、页面抓取填充、内置规则继承、系统禁用应用锁定、单规则导出导入 |
 | `AppAdapter.kt` (145行) | RecyclerView 适配器：异步图标加载（LIFO 队列 + 缓存）、内置徽标/模式标签、多选模式 |
-| `UiKit.kt` (202行) | 动态表单工具：`section`（分组卡片）、`switchRow`（开关行）、`chipBox/chip`（可勾选标签）、`textRow`（文本输入）、`dropdownRow`（下拉选择）、`note`（说明文字） |
+| `UiKit.kt` | 动态表单工具：`section`（分组卡片）、`chipBox/chip`（可勾选标签）、`textRow`（文本输入）、`dropdownRow`（下拉选择）、`note`（说明文字）、`sliderRow`（滑块） |
 | `ModeUi.kt` | 模式文案与配色映射 |
 | `BuiltinUi.kt` | 「系统已内置」徽标文案生成 |
 | **data/** | |
@@ -297,7 +296,6 @@ data class AppRule(val packageName: String) {
 ```kotlin
 object RuleStore {
     fun loadNow()                           // 阻塞读一次配置（仅入口调用）
-    fun startWatching()                     // 启动 FileObserver 或轮询兜底
     fun notifyFromApp()                     // 广播触发的热更新
     fun onChange(listener: () -> Unit)      // 注册配置变更回调
     fun activeRules(): List<AppRule>        // 读取内存快照（热路径安全）
@@ -305,7 +303,7 @@ object RuleStore {
 }
 ```
 
-性能设计：读侧全在内存（`@Volatile snapshot`），FileObserver 事件驱动 + 500ms 去抖，热路径零 IO。
+性能设计：读侧全在内存（`@Volatile snapshot`），由 App 保存广播（`ConfigSyncReceiver`）驱动热更新，热路径零 IO。FileObserver 在 system_server 上收不到 LSPosed prefs 目录的事件（SELinux 类别标签），监听路径已移除。
 
 ### 5.4 `PluginClassLoaderCatcher` — ClassLoader 捕获器
 
@@ -348,18 +346,23 @@ object EmbeddedFixedCloudInjector {
 
 位置：`app/src/.../mcp/McpServer.kt`
 
-提供 8 个 MCP 工具：
+提供 13 个 MCP 工具（与 `AiToolExecutor` 同名同义，但两侧实现各自独立、输出结构存在差异）：
 
 | 工具 | 说明 |
 |------|------|
-| `list_rules` | 列出本模块已配置的全部应用规则 |
-| `get_rule` | 读取某个应用的规则 |
-| `set_rule` | 创建或更新规则（增量更新，保存后立即热生效） |
-| `delete_rule` | 删除规则 |
-| `get_system_rule` | 读取系统内置规则（三个名单的原始属性） |
-| `search_apps` | 按关键词搜索已安装应用 |
-| `list_activities` | 列出某个应用的全部 Activity |
-| `export_rules` | 导出规则为本地 JSON 文件 |
+| `search_apps` | 按关键词搜索已安装应用（含命中的系统内置规则名单，60s 缓存） |
+| `get_app_activities` | 列出某个应用的全部 Activity |
+| `get_current_rules` | 列出本模块已配置的全部应用规则（完整 toJson） |
+| `get_app_rule` | 读取某个应用的规则 |
+| `get_system_rules` | 读取系统内置规则（三个名单的原始属性） |
+| `set_app_rule` | 创建或更新规则（增量更新，保存后立即热生效） |
+| `delete_app_rule` | 删除规则 |
+| `launch_app` | 启动应用 |
+| `export_rules` | 导出规则为本地 JSON 文件（v2 格式） |
+| `validate_rule` | 校验规则格式 |
+| `diagnose_app` | 综合诊断某个应用的适配状态 |
+| `get_crash_log` | 读取崩溃日志（需 root） |
+| `get_module_status` | 模块整体状态 |
 
 接入方式：`POST http://<IP>:8765/mcp`，JSON-RPC 2.0 协议。
 
@@ -372,9 +375,10 @@ object EmbeddedFixedCloudInjector {
 ```
 app ──→ library:common
     ──→ library:libhook ──→ library:common
-    ──→ xposed-api (compileOnly)
     ──→ AndroidX + Material
 ```
+
+（`xposed-api (compileOnly)` 仅 `library:libhook` 声明。）
 
 ### 6.2 外部依赖
 
@@ -382,7 +386,7 @@ app ──→ library:common
 |------|------|------|
 | AGP | 8.7.0 | Android 构建插件 |
 | Kotlin | 2.0.0 | 语言 |
-| Xposed API | 82 | Xposed Hook 框架接口（compileOnly） |
+| Xposed API | 82 | Xposed Hook 框架接口（compileOnly，仅 libhook） |
 | AndroidX Core KTX | 1.13.1 | Kotlin 扩展 |
 | AndroidX AppCompat | 1.7.0 | 兼容性支持 |
 | AndroidX RecyclerView | 1.3.2 | 列表视图 |
@@ -554,7 +558,7 @@ git push origin v2.4.4
 
 **工作流文件：** [.github/workflows/build-and-release.yml](../.github/workflows/build-and-release.yml)
 
-### 11.3 安装与激活
+### 11.4 安装与激活
 
 1. 安装 APK
 2. 打开 LSPosed Manager → 模块 → 完美横屏，启用模块
@@ -587,7 +591,6 @@ xposed_scope = ["android", "com.github.lsposed.magicwindow"]
 - 换机型 / 大版本升级后可能因内部类名变化而失效
 - 「直接写进系统规则表」依赖内部结构，异常时优先关掉
 - MCP 服务器应用退到后台后可能被系统暂停
-- 部分 MIUI 版本可能存在 FileObserver SELinux 权限限制（已通过广播兜底）
 
 ---
 
@@ -928,21 +931,37 @@ AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug
 
 ---
 
-**Bug 修复：**
+### 代码简化批次（2026-10-08）— 死代码清理 + 单一路径收敛
 
-1. **AI 对话上传图片不显示**（灰块 + 「图片加载失败」）：根因是选图后直接对 `content://` URI 解码——临时授权会过期、云图/跨空间相册直接解码不可靠、部分 provider 流不稳定。修复为选取后立即 `importImage()` 转存到 `filesDir/chat_images/`（降采样 ≤1280px，一次解码同时产出本地文件与 base64），缩略图/全屏预览/上传全部改走本地文件；解码失败补 `Log.w` 日志。附件元数据（type/name/localPath，不含 base64）随消息持久化到 `ChatHistory`，历史对话图片可正常回看，加载时后台 `rehydrateImages()` 从本地文件重建 base64（IO 只读、主线程应用变更，与实时会话一致——AI 能继续「看到」历史图片）。删除/清空对话联动删除图片文件，`AiChatActivity.onCreate` 后台 `pruneOrphanImages()` 清理无引用残留文件。
+**删除死代码（全仓零消费者，均经全局搜索验证）：**
 
-2. **上下文自动压缩**（新功能）：新增 `ai/ContextCompressor.kt`，以模型高级设置中的 `maxInputTokens`（上下文窗口）为上限——token 估算（CJK≈1 token/字、其余≈4 字符/token、图片 1200 tokens/张、工具定义固定开销 2500）超过 **85%** 触发压缩：保留 system 与最近消息（至少 2 条），旧消息由 AI 总结为中文摘要（保留包名/模式/关键参数/待办），压缩后目标降至 **50%**，被压缩区间的旧图片 base64 随之释放。摘要失败降级为直接丢弃旧消息。摘要消息以 `isSummary` 标记：UI 用 AI 气泡样式展示、协议上以 user 角色发送（`[前文摘要]` 前缀），并写入历史使压缩态跨会话保持。每次发请求前检查，压缩过程经 `tvToolStatus` 提示、完成后 Toast 显示压缩前后估算量。
+| 删除项 | 位置 | 说明 |
+|------|------|------|
+| `RuleStore` FileObserver + 轮询兜底路径 | `libhook/.../RuleStore.kt` | system_server 收不到 LSPosed prefs 目录事件（SELinux），热更新统一走 App 广播；删除 `startWatching`/`startFileObserver`/`startFallbackPolling`/`resolvePrefFile` 及 HandlerThread |
+| `AiClient.chat()` | `app/.../ai/AiClient.kt` | 被 `chatStream` 取代的非流式+工具循环重复实现，零调用 |
+| `UiKit.switchRow` + `row_switch.xml` | `app/.../ui/UiKit.kt` | 孤儿开关行实现 + 专用布局，零调用 |
+| `AiToolExecutor.toolDef` | `app/.../ai/AiToolExecutor.kt` | 从 McpServer 复制残留的 schema 构造器（AI 侧用 `makeTool`） |
+| `ModelManager.currentDisplayName` | `app/.../ai/ModelManager.kt` | 零调用，UI 侧已内联同款表达式 |
+| `quickAction` / 空体 `showWelcome` | `app/.../ai/AiChatActivity.kt` | 布局已移除对应控件 |
+| `ActivityLabelCache.get/put/clearPackage` | `app/.../data/ActivityLabelCache.kt` | 仅 `getAllForPackage`/`putAll` 被使用 |
+| `Constants.LOG_TAG` / `M_CREATE_CLOUD_AUTO_UI_RULE` / `PERMISSION_CONFIG_CHANGED` | `common/.../Constants.kt` | 死常量（PERMISSION 实测不可用，见 ConfigSyncReceiver 注释） |
+| `AppDetailActivity` 死局部 `contextHint` | `app/.../ui/AppDetailActivity.kt:877` | 赋值后从未读取（消费点在 `buildContextAwarePrompt`） |
+| 构建配置：jitpack 空仓库 / `suppressUnsupportedCompileSdk=37` / app 与 common 的 `compileOnly(xposed-api)` | 构建文件 | 无消费者的声明 |
 
-3. **切换模型后主页面不更新**：`MainActivity.onResume()` 补充 `renderAiModelStatus()`，从 AI 对话页切模型返回后「当前模型」即时刷新，无需重启应用。
+**合并与收敛：**
 
-**顺手修复：** `buildAiMessages()` 跳过「思考中」loading 占位消息（此前会作为空 assistant 消息发给 API）。
+- `flattenPkgClass` 双份实现收敛为 `RuleDiagnostics.flattenPkgClass`（internal），`AppDetailActivity` 改为调用方
+- `ConfigExporter` 导出 JSON 委托 `McpServer.buildRulesJson`（同一 v2 格式，统一 Locale），删除自有 `toJson` 与 `ExportData`
+- `ConfigRepository.reload()` 内联进 `init`
+- `MainActivity` 消除同函数内重复求值（`ModelManager.getCurrent` ×2、`McpServer.isRunning` ×2）
+- `AiSystemPrompt` 修正 3 处失实描述：移除工具 schema 不支持的 `skipSelfAdaptive`/`foCompatChange` 参数指引；「需重启手机」改为与热重载一致的表述
+- 注释修正：`Constants` / `ConfigRepository` 中「签名权限校验」改为实际的 `Intent.getSentFromPackage` 校验描述
 
-**新增/修改文件：**
+**行为变化：** 无（除 AI 提示词文案修正外，全部为零行为差异的删除/等价合并）。
 
-| 文件 | 变更 |
-|------|------|
-| `app/.../ai/ContextCompressor.kt` | 新建：token 估算 + 阈值判断 + AI 摘要压缩（降级硬截断） |
-| `app/.../ai/AiChatActivity.kt` | 图片转存本地 + 附件持久化/重水化 + 压缩集成（`applyCompression`）+ loading 占位过滤 |
-| `app/.../ai/ChatHistory.kt` | `Message` 增加 `attachments`/`isSummary`；删除/清空联动删图片；`pruneOrphanImages()` |
-| `app/.../ui/MainActivity.kt` | `onResume()` 增加 `renderAiModelStatus()` |
+**已知遗留（本轮未处理，留档）：**
+
+- AI 侧与 MCP 侧 13 个工具业务实现各自独立，输出结构已出现差异（`get_current_rules` 裁剪字段 vs 完整 toJson 等），需要时再做统一业务层
+- `AppRule` 78 字段在声明 / `toJson` / `fromJson` 三处平行维护
+- `AppDetailActivity` 两个页面选择器（`showPagePicker` / `showPlaceholderPairPicker`）存在约 60 行可抽取的公共段
+- `SystemRuleSource.parseContent` 与 `CloudXmlCodec.parse` 为两套同构 XML 解析（app 侧额外解析 dataVersion）

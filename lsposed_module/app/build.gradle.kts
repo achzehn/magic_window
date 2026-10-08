@@ -61,8 +61,6 @@ dependencies {
     implementation(project(":library:common"))
     implementation(project(":library:libhook"))
 
-    compileOnly(libs.xposed.api)
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.recyclerview)

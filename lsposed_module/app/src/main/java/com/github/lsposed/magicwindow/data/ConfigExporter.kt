@@ -4,29 +4,16 @@ import android.content.Context
 import android.net.Uri
 import com.github.lsposed.magicwindow.common.Constants
 import com.github.lsposed.magicwindow.common.model.AppRule
+import com.github.lsposed.magicwindow.mcp.McpServer
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.text.SimpleDateFormat
-import java.util.*
 
 /**
  * 配置导入导出工具（仅规则集）
  */
 object ConfigExporter {
-
-    /**
-     * 配置数据模型
-     */
-    data class ExportData(
-        val version: Int,
-        val exportTime: String,
-        val moduleName: String,
-        val modulePackage: String,
-        val rules: List<AppRule>
-    )
 
     /**
      * 导出配置到 JSON 文件
@@ -35,15 +22,9 @@ object ConfigExporter {
         return try {
             val rules = ConfigRepository.allRules().values.toList()
 
-            val exportData = ExportData(
-                version = 2,
-                exportTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()),
-                moduleName = "完美横屏",
-                modulePackage = Constants.MODULE_PACKAGE,
-                rules = rules
-            )
-
-            val json = toJson(exportData)
+            // 结构统一委托给 [McpServer.buildRulesJson]（同一 v2 格式），
+            // 保证导出文件与 MCP 输出的字段与 Locale 一致
+            val json = McpServer.buildRulesJson(rules).toString(2)
 
             val contentResolver = context.contentResolver
             contentResolver.openOutputStream(destinationUri)?.use { outputStream ->
@@ -117,25 +98,6 @@ object ConfigExporter {
         } catch (e: Exception) {
             return ImportResult(false, "解析配置失败：${e.message}")
         }
-    }
-
-    /**
-     * 将配置数据转换为 JSON
-     */
-    private fun toJson(data: ExportData): String {
-        val json = JSONObject()
-        json.put("version", data.version)
-        json.put("exportTime", data.exportTime)
-        json.put("moduleName", data.moduleName)
-        json.put("modulePackage", data.modulePackage)
-
-        val rulesArray = JSONArray()
-        data.rules.forEach { rule ->
-            rulesArray.put(rule.toJson())
-        }
-        json.put("rules", rulesArray)
-
-        return json.toString(2)
     }
 
     /**

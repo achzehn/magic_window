@@ -17,7 +17,7 @@ import java.net.URL
  *
  * 使用方式：
  *   val client = AiClient(context)
- *   val reply = client.chat(messages) { toolName, toolArgs ->
+ *   val reply = client.chatStream(messages, onDelta = {}) { toolName, toolArgs ->
  *       AiToolExecutor.execute(context, toolName, toolArgs)
  *   }
  *
@@ -34,82 +34,6 @@ class AiClient(private val context: Context) {
         /** 多模态图片，元素为 data URI（data:image/...;base64,xxxx），仅对 user 消息有意义 */
         val images: List<String> = emptyList()
     )
-
-    /**
-     * 发送对话请求，自动处理 function calling 循环。
-     * @param messages 对话历史
-     * @param onToolCall 工具调用回调，返回工具执行结果
-     * @return 助手的最终回复文本
-     */
-    suspend fun chat(
-        messages: List<ChatMessage>,
-        onToolCall: suspend (name: String, args: JSONObject) -> String
-    ): String = withContext(Dispatchers.IO) {
-        val cfg = currentConfig()
-        val allMessages = messages.toMutableList()
-        var rounds = 0
-
-        while (rounds < cfg.toolRounds) {
-            rounds++
-
-            val response = httpPost(
-                "${cfg.apiBase.trimEnd('/')}/chat/completions",
-                cfg.apiKey,
-                buildRequestBody(cfg, allMessages, includeTools = true)
-            )
-            val responseJson = JSONObject(response)
-
-            if (responseJson.has("error")) {
-                val errMsg = responseJson.getJSONObject("error").optString("message", "未知错误")
-                throw RuntimeException("API 错误: $errMsg")
-            }
-
-            val choices = responseJson.optJSONArray("choices")
-                ?: throw RuntimeException("API 返回格式异常：缺少 choices")
-            if (choices.length() == 0) throw RuntimeException("API 返回空结果")
-
-            val first = choices.getJSONObject(0)
-            val message = first.getJSONObject("message")
-            val finishReason = first.optString("finish_reason", "")
-
-            // 如果没有 tool_calls，返回最终回复
-            val toolCalls = message.optJSONArray("tool_calls")
-            if (toolCalls == null || toolCalls.length() == 0 || finishReason == "stop") {
-                return@withContext message.optString("content", "")
-            }
-
-            // 有 tool_calls：执行工具并继续对话
-            allMessages.add(ChatMessage(
-                role = "assistant",
-                content = if (message.isNull("content")) null else message.optString("content", null),
-                toolCalls = toolCalls
-            ))
-
-            for (i in 0 until toolCalls.length()) {
-                val tc = toolCalls.getJSONObject(i)
-                val fn = tc.getJSONObject("function")
-                val toolName = fn.getString("name")
-                val toolArgs = try {
-                    JSONObject(fn.optString("arguments", "{}"))
-                } catch (_: Exception) {
-                    JSONObject()
-                }
-                val toolCallId = tc.getString("id")
-
-                // 执行工具
-                val result = onToolCall(toolName, toolArgs)
-
-                allMessages.add(ChatMessage(
-                    role = "tool",
-                    content = result,
-                    toolCallId = toolCallId,
-                    name = toolName
-                ))
-            }
-        }
-
-        return@withContext "（工具调用轮数已达上限，请简化请求后重试）"
-    }
 
     /**
      * 单轮补全：不带工具定义，请求体更小、响应更快。

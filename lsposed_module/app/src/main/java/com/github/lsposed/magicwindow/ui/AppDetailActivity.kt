@@ -17,7 +17,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.CheckBox
-import android.widget.CheckedTextView
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ListView
@@ -34,9 +33,9 @@ import com.github.lsposed.magicwindow.data.ConfigRepository
 import com.github.lsposed.magicwindow.data.SystemRuleSource
 import com.github.lsposed.magicwindow.ai.ModelManager
 import com.github.lsposed.magicwindow.ai.AiClient
-import com.github.lsposed.magicwindow.ai.AiToolExecutor
 import com.github.lsposed.magicwindow.data.ActivityLabelCache
 import com.github.lsposed.magicwindow.data.AiSuggestCache
+import com.github.lsposed.magicwindow.data.RuleDiagnostics
 import com.github.lsposed.magicwindow.databinding.ActivityAppDetailBinding
 import com.github.lsposed.magicwindow.mcp.McpServer
 import com.google.android.material.chip.Chip
@@ -858,7 +857,7 @@ class AppDetailActivity : AppCompatActivity() {
                 when (fill) {
                     Fill.PAIR -> s.substringBefore(':')
                     // 「包名/类名」还原成全类名再与列表比对（兼容 .相对类名与纯全类名两种历史格式）
-                    Fill.PKG_CLASS -> flattenPkgClass(s)
+                    Fill.PKG_CLASS -> RuleDiagnostics.flattenPkgClass(s)
                     else -> s
                 }
             } }
@@ -872,19 +871,6 @@ class AppDetailActivity : AppCompatActivity() {
         val aiSuggestedNames = HashSet<String>()
         // AI 中文描述缓存（用于更新列表显示）
         val zhDescCache = HashMap<String, String>()
-
-        // 根据入口字段生成上下文提示
-        val contextHint = when (fieldContext) {
-            "activityRule" -> "参与分屏的页面"
-            "splitPairRule" -> "左右栏配对的页面"
-            "placeholder" -> "右栏默认显示的页面"
-            "relaunchRule", "relunchRule" -> "需要重启的页面"
-            "forcePortraitActivity" -> "始终竖着显示的页面"
-            "sizeCompatRule" -> "需要尺寸兼容的页面"
-            "autoUiActivityRule" -> "需要界面自动适配的页面"
-            "flags" -> "有特殊标记需求的页面"
-            else -> "适合该功能的页面"
-        }
 
         // 预加载本地缓存的推荐标签：打开对话框不再自动请求 AI，
         // 已分析过的页面直接显示 🤖 标签，点「勾选AI推荐」即时生效
@@ -1184,17 +1170,6 @@ class AppDetailActivity : AppCompatActivity() {
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
-
-    /**
-     * 把「包名/类名」形式的值还原成全类名，用于与 Activity 列表比对勾选状态。
-     * 兼容三种历史格式：`com.pkg/.ui.Act`（.相对类名）、`com.pkg/com.pkg.ui.Act`（全限定）、纯全类名。
-     */
-    private fun flattenPkgClass(value: String): String =
-        if ('/' in value) {
-            val p = value.substringBefore('/')
-            val c = value.substringAfter('/').removePrefix(".")
-            "$p.$c"
-        } else value
 
     /**
      * 把抓取到的 Activity 全类名转成系统规则要求的「包名/类名」格式。

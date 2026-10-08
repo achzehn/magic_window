@@ -133,10 +133,4 @@ object ModelManager {
 
     /** 是否有任何模型 */
     fun hasAny(context: Context): Boolean = getAll(context).isNotEmpty()
-
-    /** 获取当前模型的显示名称 */
-    fun currentDisplayName(context: Context): String {
-        val model = getCurrent(context)
-        return model?.name ?: model?.modelId ?: "未配置"
-    }
 }
