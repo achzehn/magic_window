@@ -30,26 +30,38 @@ object RuleStore {
 
     private val changeListeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
 
+    private val loadLock = Any()
+
+    /** 热更新专用工作线程：广播在 system_server 主线程回调，文件 IO 与注入器全量读写必须离开主线程 */
+    private val worker = android.os.Handler(
+        android.os.HandlerThread("mw-rulestore").apply { start() }.looper
+    )
+
     // ── 写侧 ────────────────────────────────────────────────
 
     /** 阻塞读一次配置。只应在注入入口调用，热路径禁止调用 */
     fun loadNow() {
-        runCatching {
-            prefs.reload()
-            val rules = RuleCodec.decodeRules(prefs.getString(Constants.KEY_RULES, null))
-            snapshot = Snapshot(rules)
-        }.onFailure { XLog.e("读取配置失败", it) }
+        // 与广播线程的 loadNow 互斥，避免 prefs.reload/快照发布交叉
+        synchronized(loadLock) {
+            runCatching {
+                prefs.reload()
+                val rules = RuleCodec.decodeRules(prefs.getString(Constants.KEY_RULES, null))
+                snapshot = Snapshot(rules)
+            }.onFailure { XLog.e("读取配置失败（保留旧快照）", it) }
+        }
     }
 
     fun onChange(listener: () -> Unit) {
         changeListeners += listener
     }
 
-    /** App 保存配置后由广播接收器调用：直接热重载并通知所有监听者 */
+    /** App 保存配置后由广播接收器调用：只入队，重读与注入全部在工作线程执行 */
     fun notifyFromApp() {
-        loadNow()
-        XLog.i("配置已更新，生效规则 ${snapshot.activeRules.size} 条")
-        changeListeners.forEach { l -> runCatching { l() }.onFailure { XLog.e("配置变更回调失败", it) } }
+        worker.post {
+            loadNow()
+            XLog.i("配置已更新，生效规则 ${snapshot.activeRules.size} 条")
+            changeListeners.forEach { l -> runCatching { l() }.onFailure { XLog.e("配置变更回调失败", it) } }
+        }
     }
 
     // ── 读侧：纯内存读取 ───────────────────────────────────

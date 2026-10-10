@@ -11,10 +11,12 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.github.lsposed.magicwindow.R
@@ -82,6 +84,9 @@ class AiChatActivity : AppCompatActivity() {
     /** 当前生成任务，用于手动停止 */
     private var genJob: kotlinx.coroutines.Job? = null
 
+    /** onCreateOptionsMenu 是否已执行（setupModelSelector 重灌菜单时避免重复注入） */
+    private var menuCreated = false
+
     /** 流式输出中正在更新的助手消息下标 */
     private var streamPos = -1
 
@@ -137,25 +142,17 @@ class AiChatActivity : AppCompatActivity() {
         val currentModel = ModelManager.getCurrent(this)
         val currentIdx = models.indexOfFirst { it.id == currentModel?.id }.coerceAtLeast(0)
 
-        binding.toolbar.menu?.clear()
-        val submenu = binding.toolbar.menu?.addSubMenu(0, 100, 0, getString(R.string.ai_manage_models))
+        val menu = binding.toolbar.menu ?: return
+        // 只清模型子菜单并按需重灌功能菜单：无条件 clear() 会把「新对话/历史/清空」
+        // 三项一并清掉（切换一次模型后消失）。onCreate 首调时 onCreateOptionsMenu 尚未执行，
+        // 此处不重复 inflate，由系统随后注入
+        menu.clear()
+        if (menuCreated) menuInflater.inflate(R.menu.menu_ai_chat, menu)
+        val submenu = menu.addSubMenu(0, 100, 0, getString(R.string.ai_manage_models))
         models.forEachIndexed { idx, model ->
             submenu?.add(0, 200 + idx, idx, model.name)
         }
-
-        binding.toolbar.setOnMenuItemClickListener { item ->
-            when {
-                item.itemId == 100 -> { showModelManager(); true }
-                item.itemId >= 200 -> {
-                    val idx = item.itemId - 200
-                    if (idx < models.size) {
-                        ModelManager.setCurrent(this, models[idx].id)
-                        true
-                    } else false
-                }
-                else -> false
-            }
-        }
+        // 菜单点击统一由 onOptionsItemSelected 处理，不覆盖 toolbar 的转发 listener
     }
 
     private fun showModelManager() {
@@ -171,6 +168,11 @@ class AiChatActivity : AppCompatActivity() {
     }
 
     private fun loadConversation(convId: String) {
+        // 生成期间切会话会让流式回调按下标写入错误列表（越界或污染新会话）
+        if (isGenerating) {
+            Toast.makeText(this, "正在生成中，请先点停止", Toast.LENGTH_SHORT).show()
+            return
+        }
         val conv = ChatHistory.get(this, convId) ?: return
         currentConversation = conv
         messages.clear()
@@ -180,6 +182,7 @@ class AiChatActivity : AppCompatActivity() {
                     uri = meta.localPath?.let { Uri.fromFile(java.io.File(it)) } ?: Uri.EMPTY,
                     name = meta.name,
                     type = meta.type,
+                    content = meta.content,
                     localPath = meta.localPath
                 )
             }
@@ -197,11 +200,15 @@ class AiChatActivity : AppCompatActivity() {
         binding.recycler.scrollToPosition(messages.size - 1)
         // 后台重水化图片 base64，后续请求能把历史图片重新发给模型（与实时会话行为一致）
         lifecycleScope.launch {
-            // IO 线程只读文件，回到主线程再改 messages，避免与列表绑定并发
-            val hydrated = withContext(Dispatchers.IO) { rehydrateImages() }
+            // 快照在主线程取、IO 只读快照：直接在 IO 线程遍历主线程可随时增删的 messages
+            // 会并发修改；回写按下标定位，写回前校验目标未变，防止附件张冠李戴
+            val snapshot = messages.toList()
+            val hydrated = withContext(Dispatchers.IO) { rehydrateImages(snapshot) }
             if (hydrated.isNotEmpty()) {
                 hydrated.forEach { (idx, atts) ->
-                    if (idx < messages.size) messages[idx] = messages[idx].copy(attachments = atts)
+                    if (idx in snapshot.indices && idx in messages.indices && messages[idx] === snapshot[idx]) {
+                        messages[idx] = messages[idx].copy(attachments = atts)
+                    }
                 }
                 adapter.notifyDataSetChanged()
             }
@@ -209,9 +216,9 @@ class AiChatActivity : AppCompatActivity() {
     }
 
     /** 为缺少 base64 的图片附件从本地文件读取 data URI；返回 消息下标→新附件列表（纯 IO，不改 UI 状态） */
-    private fun rehydrateImages(): Map<Int, List<Attachment>> {
+    private fun rehydrateImages(src: List<MessageUi>): Map<Int, List<Attachment>> {
         val out = mutableMapOf<Int, List<Attachment>>()
-        messages.forEachIndexed { idx, msg ->
+        src.forEachIndexed { idx, msg ->
             if (msg.attachments.none { it.type == "image" && it.imageDataUri == null }) return@forEachIndexed
             val newAtts = msg.attachments.map { att ->
                 if (att.type == "image" && att.imageDataUri == null && att.localPath != null) {
@@ -356,14 +363,31 @@ class AiChatActivity : AppCompatActivity() {
 
     private fun handleFilePicked(uri: Uri) {
         val name = uri.lastPathSegment ?: "file.txt"
-        // 尝试读取文本内容
-        val content = try {
-            contentResolver.openInputStream(uri)?.bufferedReader()?.readText()
-        } catch (_: Exception) { null }
-
-        pendingAttachments.add(Attachment(uri, name, "text", content))
-        updateAttachmentPreview()
-        Toast.makeText(this, "已添加：$name", Toast.LENGTH_SHORT).show()
+        // 读文件（含截断上限）放 IO 线程：主线程同步 readText 大文件会卡死界面甚至 OOM；
+        // 只保留前 MAX_TEXT_CHARS 字符——注入模型时同样按该上限截断，多读无意义
+        lifecycleScope.launch {
+            val content = withContext(Dispatchers.IO) {
+                runCatching {
+                    contentResolver.openInputStream(uri)?.bufferedReader()?.use { reader ->
+                        val sb = StringBuilder()
+                        val buf = CharArray(8192)
+                        while (sb.length < MAX_TEXT_CHARS) {
+                            val n = reader.read(buf, 0, minOf(buf.size, MAX_TEXT_CHARS - sb.length))
+                            if (n < 0) break
+                            sb.append(buf, 0, n)
+                        }
+                        sb.toString()
+                    }
+                }.getOrNull()
+            }
+            if (content == null) {
+                Toast.makeText(this@AiChatActivity, "读取文件失败：$name", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            pendingAttachments.add(Attachment(uri, name, "text", content))
+            updateAttachmentPreview()
+            Toast.makeText(this@AiChatActivity, "已添加：$name", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun updateAttachmentPreview() {
@@ -514,15 +538,8 @@ class AiChatActivity : AppCompatActivity() {
             return
         }
 
-        // 如果没有当前对话，创建新对话
-        if (currentConversation == null) {
-            currentConversation = ChatHistory.create(
-                this,
-                ChatHistory.generateTitle(text.ifEmpty { pendingAttachments.joinToString(",") { it.name } }),
-                ModelManager.getCurrent(this)?.id ?: ""
-            )
-        }
-
+        // 会话不在发送时创建：首条消息失败/被停止会留下一条零消息的幽灵会话。
+        // 延迟到首次成功保存时创建（标题取自 userText）
         val displayText = if (text.isNotEmpty()) text else {
             // 纯附件消息，自动生成描述
             val attNames = pendingAttachments.joinToString(", ") { it.name }
@@ -564,6 +581,8 @@ class AiChatActivity : AppCompatActivity() {
                     val result = ContextCompressor.compress(aiMessages, cfg) { msgs ->
                         aiClient.complete(msgs)
                     }
+                    // 压缩期间被停止：不再动消息列表（压缩已抛 CE 时到不了这里，此处兜底窗口期取消）
+                    coroutineContext.ensureActive()
                     updateToolStatus(null)
                     if (result.removedCount > 0) {
                         applyCompression(result)
@@ -602,16 +621,19 @@ class AiChatActivity : AppCompatActivity() {
                 }
 
                 // 保存到历史（附件只存元数据，图片 base64 从本地文件恢复）
-                currentConversation?.let { conv ->
-                    conv.messages.add(ChatHistory.Message(
-                        "user", userText,
-                        attachments = attachments.map {
-                            ChatHistory.AttachmentMeta(it.type, it.name, it.localPath)
-                        }
-                    ))
-                    conv.messages.add(ChatHistory.Message("assistant", reply))
-                    ChatHistory.save(this@AiChatActivity, conv)
-                }
+                val conv = currentConversation ?: ChatHistory.create(
+                    this@AiChatActivity,
+                    ChatHistory.generateTitle(userText),
+                    ModelManager.getCurrent(this@AiChatActivity)?.id ?: ""
+                ).also { currentConversation = it }
+                conv.messages.add(ChatHistory.Message(
+                    "user", userText,
+                    attachments = attachments.map {
+                        ChatHistory.AttachmentMeta(it.type, it.name, it.localPath, it.content)
+                    }
+                ))
+                conv.messages.add(ChatHistory.Message("assistant", reply))
+                ChatHistory.save(this@AiChatActivity, conv)
             } catch (ce: kotlinx.coroutines.CancellationException) {
                 // 用户手动停止：给已生成的部分内容打上标记
                 if (streamPos >= 0 && messages.getOrNull(streamPos)?.role == "assistant") {
@@ -647,6 +669,8 @@ class AiChatActivity : AppCompatActivity() {
                 binding.fabSend.setImageResource(R.drawable.ic_send)
                 binding.fabSend.contentDescription = getString(R.string.ai_send)
                 binding.fabSend.isEnabled = true
+                // 停止/异常路径不会经过工具回调里的复位，统一在此清掉残留的工具状态栏
+                updateToolStatus(null)
             }
         }
     }
@@ -673,25 +697,29 @@ class AiChatActivity : AppCompatActivity() {
         aiClient.cancelActiveRequest()
     }
 
-    /** 失败消息重试：移除错误提示后用已有的用户消息重新请求 */
+    /** 失败消息重试：移除错误提示后用该错误「之前」的用户消息重新请求 */
     private fun retryLast(errorPosition: Int) {
         if (isGenerating) return
+        // 取错误消息之前的最近提问：用「整个列表的最后一条」会在旧错误之后已有新对话时，
+        // 拿最新提问去重问、而真正失败的提问永远得不到回答
+        val userPos = errorPosition.coerceIn(0, messages.size)
+        val lastUser = messages.subList(0, userPos).lastOrNull { it.role == "user" && !it.isSummary }
         if (errorPosition in messages.indices) {
             messages.removeAt(errorPosition)
             adapter.notifyItemRemoved(errorPosition)
         }
-        val lastUser = messages.lastOrNull { it.role == "user" && !it.isSummary }
-            ?: return
+        lastUser ?: return
         launchRequest(lastUser.content, lastUser.attachments)
     }
 
     /**
-     * 压缩生效到 UI 与历史：移除最早的被压缩消息，头部插入一条摘要消息。
-     * 摘要持久化后，恢复历史对话时上下文仍保持压缩态。
+     * 历史持久化（摘要随会话恢复，上下文保持压缩态）。
+     * 失败/停止等交换只存在于 UI，若按条数删历史，两侧条数不一致会错删较新的历史消息——
+     * 这里以 UI 列表为准整体重建，保证历史始终是界面状态的一致投影。
      */
     private fun applyCompression(result: ContextCompressor.Result) {
         // 三处（本轮请求 / UI 展示 / 历史持久化）保持同一文本，保证后续每轮上下文一致
-        val summaryText = "[前文摘要] " + (result.summary ?: "（摘要生成失败，最早的消息已直接丢弃）")
+        val summaryText = "[前文摘要] " + (result.summary ?: ContextCompressor.FALLBACK_SUMMARY)
         val summaryUi = MessageUi(
             role = "assistant",
             content = summaryText,
@@ -703,12 +731,18 @@ class AiChatActivity : AppCompatActivity() {
         adapter.notifyDataSetChanged()
 
         currentConversation?.let { conv ->
-            repeat(removeCount.coerceAtMost(conv.messages.size)) { conv.messages.removeAt(0) }
-            conv.messages.add(0, ChatHistory.Message(
-                role = "user",
-                content = summaryText,
-                isSummary = true
-            ))
+            conv.messages.clear()
+            messages.forEach { m ->
+                if (m.toolCalls == "loading" || m.isError) return@forEach // 占位与失败提示不入历史
+                conv.messages.add(ChatHistory.Message(
+                    role = if (m.isSummary) "user" else m.role,
+                    content = m.content,
+                    attachments = m.attachments.map {
+                        ChatHistory.AttachmentMeta(it.type, it.name, it.localPath, it.content)
+                    },
+                    isSummary = m.isSummary
+                ))
+            }
             ChatHistory.save(this, conv)
         }
     }
@@ -778,17 +812,31 @@ class AiChatActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.menu_ai_chat, menu)
+        menuCreated = true
         return true
     }
 
-    override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
-        R.id.action_history -> { showHistoryDialog(); true }
-        R.id.action_new_chat -> { newChat(); true }
-        R.id.action_clear -> { clearChat(); true }
+    override fun onOptionsItemSelected(item: MenuItem): Boolean = when {
+        item.itemId == R.id.action_history -> { showHistoryDialog(); true }
+        item.itemId == R.id.action_new_chat -> { newChat(); true }
+        item.itemId == R.id.action_clear -> { clearChat(); true }
+        item.itemId == 100 -> { showModelManager(); true }
+        // 模型子菜单项（setupModelSelector 添加）
+        item.itemId >= 200 && item.itemId < 200 + ModelManager.getEnabled(this).size -> {
+            val models = ModelManager.getEnabled(this)
+            ModelManager.setCurrent(this, models[item.itemId - 200].id)
+            updateModelSwitchButton()
+            setupModelSelector()
+            true
+        }
         else -> super.onOptionsItemSelected(item)
     }
 
     private fun newChat() {
+        if (isGenerating) {
+            Toast.makeText(this, "正在生成中，请先点停止", Toast.LENGTH_SHORT).show()
+            return
+        }
         currentConversation = null
         messages.clear()
         adapter.notifyDataSetChanged()
@@ -815,7 +863,16 @@ class AiChatActivity : AppCompatActivity() {
                 loadConversation(conversations[which].id)
             }
             .setNeutralButton(R.string.ai_clear_history) { _, _ ->
+                if (isGenerating) {
+                    Toast.makeText(this, "正在生成中，请先点停止", Toast.LENGTH_SHORT).show()
+                    return@setNeutralButton
+                }
                 ChatHistory.clearAll(this)
+                // clearAll 已删除全部历史与图片文件：必须同步重置当前会话引用与界面，
+                // 否则下一条成功消息会把旧对话（含已删图片路径）整体复活写回
+                currentConversation = null
+                messages.clear()
+                adapter.notifyDataSetChanged()
                 Toast.makeText(this, R.string.ai_history_cleared, Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -823,6 +880,13 @@ class AiChatActivity : AppCompatActivity() {
     }
 
     private fun clearChat() {
+        if (isGenerating) {
+            Toast.makeText(this, "正在生成中，请先点停止", Toast.LENGTH_SHORT).show()
+            return
+        }
+        // 脱离当前会话引用：否则清空只清了界面，下一条消息仍 append 进旧会话并连同
+        // 「已清空」的消息一起持久化，重开对话时旧消息复活
+        currentConversation = null
         messages.clear()
         adapter.notifyDataSetChanged()
     }
@@ -902,12 +966,14 @@ class AiChatActivity : AppCompatActivity() {
                     vh.layoutAi.visibility = View.VISIBLE
                     vh.layoutLoading.visibility = View.GONE
                     vh.tvAiMessage.text = item.content
-                    if (item.toolCalls != null) {
-                        vh.tvToolCall.visibility = View.VISIBLE
-                        vh.tvToolCall.text = item.toolCalls
-                    } else {
-                        vh.tvToolCall.visibility = View.GONE
-                    }
+                    vh.layoutToolCall.visibility =
+                        if (item.toolCalls != null) View.VISIBLE else View.GONE
+                    if (item.toolCalls != null) vh.tvToolCall.text = item.toolCalls
+                    // 失败消息改用红色描边，和正常回复一眼可分
+                    vh.bubble.strokeColor = ContextCompat.getColor(
+                        this@AiChatActivity,
+                        if (item.isError) R.color.conflict_error else R.color.divider
+                    )
                     vh.btnRetry.visibility = if (item.isError) View.VISIBLE else View.GONE
                 }
                 TYPE_LOADING -> {
@@ -923,6 +989,9 @@ class AiChatActivity : AppCompatActivity() {
             val layoutUserAttach: LinearLayout = view.findViewById(R.id.layoutUserAttach)
             val layoutAi: LinearLayout = view.findViewById(R.id.layoutAi)
             val layoutLoading: LinearLayout = view.findViewById(R.id.layoutLoading)
+            val layoutToolCall: LinearLayout = view.findViewById(R.id.layoutToolCall)
+            val bubble: com.google.android.material.card.MaterialCardView =
+                view.findViewById(R.id.cardAiBubble)
             val tvUserMessage: TextView = view.findViewById(R.id.tvUserMessage)
             val tvAiMessage: TextView = view.findViewById(R.id.tvAiMessage)
             val tvToolCall: TextView = view.findViewById(R.id.tvToolCall)

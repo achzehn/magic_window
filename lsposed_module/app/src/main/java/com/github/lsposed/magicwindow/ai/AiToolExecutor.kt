@@ -15,7 +15,8 @@ import org.json.JSONObject
  * AI 工具执行器：将 AI 的 function call 映射到模块实际操作。
  *
  * 设计原则：
- * - 所有工具调用都在主线程执行（通过 ViewModel 协程调度）
+ * - 参数在入口统一做 camelCase→snake_case 归一化（提示词/工具结果里的 camelCase 写法不再被静默丢弃）
+ * - 布尔参数严格解析，非法值返回错误让模型自行纠正，而非静默回退成 true
  * - 返回结果为 JSON 字符串，直接作为 tool response 返回给 AI
  * - 错误时返回错误信息而非抛异常
  */
@@ -81,7 +82,8 @@ object AiToolExecutor {
                 "fo_force_portrait_activity" to "固定横屏下仍竖屏显示的页面，格式「包名/类名」如 com.example.app/.ui.CameraActivity，多个逗号分隔，仅 fixedOrientation",
                 "autoui_enable" to "是否启用界面适配优化，true/false，可叠加在任意模式上",
                 "autoui_activity_rule" to "界面适配页面规则，格式「页面全类名:模式码」，模式码 1=左侧 2=右侧 6=全屏，多页面用分号分隔",
-                "autoui_skipped_activity_rule" to "跳过界面适配的页面（分号分隔）"
+                "autoui_skipped_activity_rule" to "跳过界面适配的页面（分号分隔）",
+                "enabled" to "是否启用该规则，true/false；不传则保持现状（新建规则默认启用）"
             )
         ))
 
@@ -167,26 +169,59 @@ object AiToolExecutor {
      * @return JSON 格式的执行结果
      */
     fun execute(context: Context, name: String, arguments: JSONObject): String {
+        // 兼容 camelCase 参数名（提示词与 get_app_rule 返回均为 camelCase，schema 为 snake_case）
+        val args = normalizeKeys(arguments)
         return try {
             when (name) {
-                "search_apps" -> searchApps(context, arguments)
-                "get_app_activities" -> getAppActivities(context, arguments)
+                "search_apps" -> searchApps(context, args)
+                "get_app_activities" -> getAppActivities(context, args)
                 "get_current_rules" -> getCurrentRules()
-                "get_app_rule" -> getAppRule(arguments)
-                "get_system_rules" -> getSystemRules(context, arguments)
-                "set_app_rule" -> setAppRule(context, arguments)
-                "delete_app_rule" -> deleteAppRule(arguments)
-                "validate_rule" -> validateRule(context, arguments)
-                "diagnose_app" -> diagnoseApp(context, arguments)
-                "get_crash_log" -> crashLog(context, arguments)
-                "launch_app" -> launchApp(context, arguments)
-                "export_rules" -> exportRules(context, arguments)
+                "get_app_rule" -> getAppRule(args)
+                "get_system_rules" -> getSystemRules(context, args)
+                "set_app_rule" -> setAppRule(context, args)
+                "delete_app_rule" -> deleteAppRule(args)
+                "validate_rule" -> validateRule(context, args)
+                "diagnose_app" -> diagnoseApp(context, args)
+                "get_crash_log" -> crashLog(context, args)
+                "launch_app" -> launchApp(context, args)
+                "export_rules" -> exportRules(context, args)
                 "get_module_status" -> getModuleStatus(context)
                 else -> errorResult("未知工具: $name")
             }
         } catch (e: Exception) {
             errorResult("工具执行失败: ${e.message}")
         }
+    }
+
+    /** 顶层参数键 camelCase → snake_case（activityRule → activity_rule），无大写键时原样返回 */
+    private fun normalizeKeys(args: JSONObject): JSONObject {
+        if (args.keys().asSequence().none { it.any(Char::isUpperCase) }) return args
+        val out = JSONObject()
+        args.keys().forEachRemaining { k ->
+            val snake = buildString {
+                k.forEach { c ->
+                    if (c.isUpperCase()) { append('_'); append(c.lowercaseChar()) } else append(c)
+                }
+            }
+            out.put(snake, args.get(k))
+        }
+        return out
+    }
+
+    /** 严格布尔：仅接受 JSON 布尔与 "true"/"false" 字符串；非法值抛出让模型收到明确错误 */
+    private fun strictBool(args: JSONObject, key: String): Boolean? {
+        if (!args.has(key) || args.isNull(key)) return null
+        val raw = args.get(key)
+        val parsed = when (raw) {
+            is Boolean -> raw
+            is String -> when (raw.trim().lowercase(java.util.Locale.US)) {
+                "true" -> true
+                "false" -> false
+                else -> null
+            }
+            else -> null
+        }
+        return parsed ?: throw IllegalArgumentException("参数 $key 需要 true/false 布尔值，收到：$raw")
     }
 
     // ── 工具实现 ──────────────────────────────────────────
@@ -316,9 +351,12 @@ object AiToolExecutor {
             else -> return errorResult("无效的 mode: $modeStr")
         }
 
-        val existing = ConfigRepository.rule(pkg) ?: AppRule(pkg)
-        existing.enabled = true
+        // 深拷贝后修改：直接改仓储共享实例会让未保存的编辑泄漏给列表/MCP 且被并发读到中间态
+        val existing = ConfigRepository.rule(pkg)?.let { AppRule.fromJson(it.toJson()) } ?: AppRule(pkg)
         existing.mode = mode
+        // enabled 仅显式传入时覆盖；新规则保持 AppRule 默认 true（原先无条件强制 true
+        // 会把用户在 UI 里有意停用的规则悄悄重新启用）
+        strictBool(args, "enabled")?.let { existing.enabled = it }
 
         // 按模式应用参数（布尔参数仅在显式传入时覆盖，避免把既有配置悄悄改掉）
         args.optString("activity_rule").takeIf { it.isNotEmpty() }?.let { existing.activityRule = it }
@@ -326,8 +364,8 @@ object AiToolExecutor {
         args.optString("split_ratio").takeIf { it.isNotEmpty() }?.let { existing.splitRatio = it }
         args.optString("placeholder").takeIf { it.isNotEmpty() }?.let { existing.placeholder = it }
         args.optString("transition_rules").takeIf { it.isNotEmpty() }?.let { existing.transitionRules = it }
-        if (args.has("support_full_size")) existing.supportFullSize = args.optBoolean("support_full_size", true)
-        if (args.has("is_show_divider")) existing.isShowDivider = args.optBoolean("is_show_divider", true)
+        strictBool(args, "support_full_size")?.let { existing.supportFullSize = it }
+        strictBool(args, "is_show_divider")?.let { existing.isShowDivider = it }
         args.optString("force_portrait_activity").takeIf { it.isNotEmpty() }?.let { existing.forcePortraitActivity = it }
         args.optString("full_rule").takeIf { it.isNotEmpty() }?.let { existing.fullRule = it }
         args.optString("fo_default_settings").takeIf { it.isNotEmpty() }?.let { existing.foDefaultSettings = it }
@@ -335,7 +373,7 @@ object AiToolExecutor {
         args.optString("fo_ratio").takeIf { it.isNotEmpty() }?.let { existing.foRatio = it }
         args.optString("fo_force_portrait_activity").takeIf { it.isNotEmpty() }?.let { existing.foForcePortraitActivity = it }
         // autoui 叠加参数：与模式互不干扰
-        if (args.has("autoui_enable")) existing.autoUiEnable = args.optBoolean("autoui_enable", true)
+        strictBool(args, "autoui_enable")?.let { existing.autoUiEnable = it }
         args.optString("autoui_activity_rule").takeIf { it.isNotEmpty() }?.let { existing.autoUiActivityRule = it }
         args.optString("autoui_skipped_activity_rule").takeIf { it.isNotEmpty() }?.let { existing.autoUiSkippedActivityRule = it }
 

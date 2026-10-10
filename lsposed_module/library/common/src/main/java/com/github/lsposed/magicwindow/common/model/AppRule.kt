@@ -323,6 +323,11 @@ data class AppRule(
                 ratio169Enable = o.optBoolean("ratio169Enable", d.ratio169Enable)
                 ratioFullScreenEnable = o.optBoolean("ratioFullScreenEnable", d.ratioFullScreenEnable)
                 forceEdit = o.optBoolean("forceEdit", d.forceEdit)
+
+                // 三个比例档互斥（UI 单选、applyAppModes 按 4:3>16:9>全屏 取值）：
+                // 导入/脏数据可能同时为 true，这里按同一优先级归一，避免静默选中与预期不符的档位
+                if (ratio169Enable && ratio43Enable) ratio169Enable = false
+                if (ratioFullScreenEnable && (ratio43Enable || ratio169Enable)) ratioFullScreenEnable = false
             }
         }
     }

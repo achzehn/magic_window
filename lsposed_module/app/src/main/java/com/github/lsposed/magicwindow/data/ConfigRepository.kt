@@ -12,6 +12,9 @@ import com.github.lsposed.magicwindow.common.model.RuleCodec
  *
  * 依赖 `xposedsharedprefs=true`：LSPosed 会把这份 SharedPreferences 变为 hook 侧可读，
  * 因此需要用 MODE_WORLD_READABLE 打开（未激活模块时会抛异常，回落到 MODE_PRIVATE）。
+ *
+ * 线程模型：AI 工具在 IO 线程读写、MCP 工具在后台单线程执行、UI 在主线程——
+ * 所有对 [rules] 的结构性访问都在 synchronized 块内，[allRules] 返回快照避免迭代中 CME。
  */
 object ConfigRepository {
 
@@ -28,48 +31,61 @@ object ConfigRepository {
         }.getOrElse {
             context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
         }
-        rules.clear()
-        rules.putAll(RuleCodec.decodeRules(prefs.getString(Constants.KEY_RULES, null)))
+        // 损坏的 JSON 按空配置处理（decodeRules 失败抛异常），不让启动路径崩溃
+        synchronized(rules) {
+            rules.clear()
+            rules.putAll(runCatching { RuleCodec.decodeRules(prefs.getString(Constants.KEY_RULES, null)) }
+                .getOrElse { emptyMap() })
+        }
     }
 
     /** 已配置的应用数 */
-    fun configuredCount(): Int = rules.count { it.value.enabled }
+    fun configuredCount(): Int = synchronized(rules) { rules.count { it.value.enabled } }
 
-    fun allRules(): Map<String, AppRule> = rules
+    /** 返回快照（防御迭代期间其他线程结构性修改），元素为共享实例、只读使用 */
+    fun allRules(): Map<String, AppRule> = synchronized(rules) { rules.toMap() }
 
-    fun rule(pkg: String): AppRule? = rules[pkg]
+    fun rule(pkg: String): AppRule? = synchronized(rules) { rules[pkg] }
 
-    fun ruleOrNew(pkg: String): AppRule = rules[pkg] ?: AppRule(pkg)
+    fun ruleOrNew(pkg: String): AppRule = synchronized(rules) { rules[pkg] } ?: AppRule(pkg)
 
     fun saveRule(rule: AppRule) {
-        rules[rule.packageName] = rule
+        synchronized(rules) { rules[rule.packageName] = rule }
         persistRules()
     }
 
     fun saveRules(list: Collection<AppRule>) {
-        list.forEach { rules[it.packageName] = it }
+        synchronized(rules) { list.forEach { rules[it.packageName] = it } }
         persistRules()
     }
 
     /** 全量替换：导入配置、保存全规则编辑器时使用，保证被移除的规则真的消失 */
     fun replaceAllRules(list: Collection<AppRule>) {
-        rules.clear()
-        list.forEach { rules[it.packageName] = it }
+        synchronized(rules) {
+            rules.clear()
+            list.forEach { rules[it.packageName] = it }
+        }
         persistRules()
     }
 
     fun removeRule(pkg: String) {
-        rules.remove(pkg)
+        synchronized(rules) { rules.remove(pkg) }
         persistRules()
     }
 
     fun removeRules(pkgs: Collection<String>) {
-        pkgs.forEach { rules.remove(it) }
+        synchronized(rules) { pkgs.forEach { rules.remove(it) } }
         persistRules()
     }
 
     private fun persistRules() {
-        prefs.edit().putString(Constants.KEY_RULES, RuleCodec.encodeRules(rules.values)).commit()
+        val encoded = synchronized(rules) { RuleCodec.encodeRules(rules.values) }
+        val ok = prefs.edit().putString(Constants.KEY_RULES, encoded).commit()
+        if (!ok) {
+            // commit 失败仍发广播会让 hook 侧重载到旧配置，状态分叉且无从察觉
+            android.util.Log.w("ConfigRepository", "规则持久化失败（commit 返回 false），跳过热更新广播")
+            return
+        }
         notifyHookSide()
     }
 

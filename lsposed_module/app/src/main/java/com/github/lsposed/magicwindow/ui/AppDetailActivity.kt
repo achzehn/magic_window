@@ -35,6 +35,7 @@ import com.github.lsposed.magicwindow.ai.ModelManager
 import com.github.lsposed.magicwindow.ai.AiClient
 import com.github.lsposed.magicwindow.data.ActivityLabelCache
 import com.github.lsposed.magicwindow.data.AiSuggestCache
+import com.github.lsposed.magicwindow.data.PageRoleCache
 import com.github.lsposed.magicwindow.data.RuleDiagnostics
 import com.github.lsposed.magicwindow.databinding.ActivityAppDetailBinding
 import com.github.lsposed.magicwindow.mcp.McpServer
@@ -73,8 +74,14 @@ class AppDetailActivity : AppCompatActivity() {
     /** true 表示该应用已有用户保存的规则，系统内置值只做徽标，不覆盖任何字段 */
     private var userSaved = false
 
+    /** 进入页面时该应用是否已有保存的规则（会话级 userSaved 无法区分上次会话保存的规则） */
+    private var isNewRule = false
+
     /** 用户进入页面后是否动过任何配置；动过之后异步读到的内置值就不再回填，避免覆盖输入 */
     private var dirty = false
+
+    /** 程序化切换模式（导入/系统规则回填/恢复默认）时置 true：只同步 pendingMode，不套用样例默认值 */
+    private var suppressModeSideEffects = false
 
     /** 简单模式只显示当前模式的常用项；高级模式显示完整参数表。记忆在全局配置里 */
     private var simpleMode = true
@@ -99,10 +106,13 @@ class AppDetailActivity : AppCompatActivity() {
             return
         }
 
-        // 优先读取已有规则；没有则用系统内置值做初值
+        // 优先读取已有规则；没有则用系统内置值做初值。
+        // 已有规则做深拷贝：表单控件全部直接改写 rule，若共享仓储实例，
+        // 未点保存的编辑会立即泄漏到列表/MCP/导出，并被其他位置的保存连带持久化
         val existing = ConfigRepository.rule(pkg)
+        isNewRule = existing == null
         rule = if (existing != null) {
-            existing
+            AppRule.fromJson(existing.toJson())
         } else {
             AppRule(pkg).also { SystemRuleSource.applyDefaults(it) }
         }
@@ -142,11 +152,14 @@ class AppDetailActivity : AppCompatActivity() {
         binding.modeGroup.check(ModeUi.buttonOf(pendingMode))
         binding.modeGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
             if (!isChecked) return@addOnButtonCheckedListener
-            dirty = true
             pendingMode = ModeUi.modeOf(checkedId)
+            updateModeDesc()
+            // 程序化 check（导入/回填/恢复默认）：调用方自行 buildForm 与置 dirty，
+            // 此处套用样例默认值会覆盖刚导入或刚恢复的系统内置值
+            if (suppressModeSideEffects) return@addOnButtonCheckedListener
+            dirty = true
             UiKit.vibrate(this)
             applyModeDefaults()
-            updateModeDesc()
             buildForm()
         }
         updateModeDesc()
@@ -167,13 +180,17 @@ class AppDetailActivity : AppCompatActivity() {
         buildForm()
     }
 
-    /** 系统规则表后台加载完成：未动过的新规则用内置值重建表单，并刷新徽标与读取提示 */
+    /** 系统规则表后台加载完成：仅新规则用内置值重建表单，并刷新徽标与读取提示 */
     private fun onSystemRulesReady() {
         if (isFinishing) return
-        if (!userSaved && !dirty) {
+        // 只回填「本次会话新建且未保存、未编辑」的规则：
+        // 上次会话保存的规则 userSaved 也是 false，直接回填会用内置值覆盖用户已保存的配置
+        if (isNewRule && !userSaved && !dirty) {
             SystemRuleSource.applyDefaults(rule)
             pendingMode = rule.mode
+            suppressModeSideEffects = true
             binding.modeGroup.check(ModeUi.buttonOf(pendingMode))
+            suppressModeSideEffects = false
             buildForm()
         }
         showBuiltinCard()
@@ -251,7 +268,14 @@ class AppDetailActivity : AppCompatActivity() {
     private fun resetToBuiltin() {
         if (!SystemRuleSource.loaded) {
             Snackbar.make(binding.root, R.string.builtin_loading, Snackbar.LENGTH_SHORT).show()
-            SystemRuleSource.whenLoadedOnMain { if (!isFinishing) applyBuiltinDefaults() }
+            // 加载可能在数十秒后才完成：届时若用户已编辑/保存，迟到的恢复会清掉其成果
+            val dirtyAtClick = dirty
+            val savedAtClick = userSaved
+            SystemRuleSource.whenLoadedOnMain {
+                if (!isFinishing && dirty == dirtyAtClick && userSaved == savedAtClick) {
+                    applyBuiltinDefaults()
+                }
+            }
         } else {
             applyBuiltinDefaults()
         }
@@ -268,12 +292,16 @@ class AppDetailActivity : AppCompatActivity() {
             }
         }
         pendingMode = rule.mode
-        applyModeDefaults()
+        // 内置规则恢复为系统值（applyDefaults 已填），套用文档样例值会覆盖刚恢复的
+        // foDefaultSettings/fullRule 等；样例值只给无内置规则的空默认
+        if (!isBuiltin) applyModeDefaults()
         userSaved = false
         dirty = false
         binding.switchEnabled.isChecked = rule.enabled
         binding.swForceEdit.isChecked = rule.forceEdit
+        suppressModeSideEffects = true
         binding.modeGroup.check(ModeUi.buttonOf(pendingMode))
+        suppressModeSideEffects = false
         buildForm()
         applyEditState()
         UiKit.vibrate(this)
@@ -430,6 +458,12 @@ class AppDetailActivity : AppCompatActivity() {
             chips, "supportCameraPreview", "允许相机预览分屏", "supportCameraPreview",
             rule.supportCameraPreview
         ) { rule.supportCameraPreview = it }
+        // disableCameraPreview 是独立的系统属性（原先无任何编辑入口：导入的 true 值
+        // 不可见也不可改，界面显示与实际生效规则相反）
+        chip(
+            chips, "disableCameraPreview", "禁用相机预览分屏", "disableCameraPreview",
+            rule.disableCameraPreview
+        ) { rule.disableCameraPreview = it }
         chip(chips, "relaunch", "切换时重启应用", "relaunch", rule.relaunch) { rule.relaunch = it }
         chip(chips, "clearTop", "返回时清空上层页面", "clearTop", rule.clearTop) { rule.clearTop = it }
         chip(
@@ -852,17 +886,26 @@ class AppDetailActivity : AppCompatActivity() {
         }.distinctBy { it.name }
             .sortedWith(compareByDescending<Item> { it.isMain }.thenBy { it.name })
 
-        val currentItems = current.split(',', ';')
-            .map { it.trim().let { s ->
-                when (fill) {
-                    Fill.PAIR -> s.substringBefore(':')
-                    // 「包名/类名」还原成全类名再与列表比对（兼容 .相对类名与纯全类名两种历史格式）
-                    Fill.PKG_CLASS -> RuleDiagnostics.flattenPkgClass(s)
-                    else -> s
-                }
-            } }
-            .filter { it.isNotEmpty() }
-            .toSet()
+        // 回显匹配：条目常带后缀（页面:模式码、标志:页面、包名/类名:1、左栏:右栏 等），
+        // 直接用整串比对会全部失配——确认后旧条目被裸类名覆盖、后缀/右栏丢失。
+        // 这里用「整串/冒号分段/还原包名」多候选匹配列表项，并记录 原始条目→列表项名 映射，
+        // 确认写回时优先原样保留旧条目，只有新增项才用默认格式
+        val entryByKey = HashMap<String, String>()
+        current.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }.forEach { raw ->
+            val candidates = linkedSetOf(
+                raw,
+                raw.substringBefore(':'),
+                raw.substringAfter(':', ""),
+                RuleDiagnostics.flattenPkgClass(raw.substringBefore(':'))
+            )
+            raw.split(':').forEach { seg ->
+                candidates.add(seg)
+                if ('/' in seg) candidates.add(RuleDiagnostics.flattenPkgClass(seg))
+            }
+            val key = candidates.firstOrNull { c -> c.isNotEmpty() && items.any { it.name == c } }
+            if (key != null) entryByKey[key] = raw
+        }
+        val currentItems = entryByKey.keys.toSet()
         val checkedMap = HashMap<String, Boolean>()
         items.forEach { if (it.name in currentItems) checkedMap[it.name] = true }
 
@@ -1069,7 +1112,7 @@ class AppDetailActivity : AppCompatActivity() {
                                 }
                             )
                             if (zhDescCache.isNotEmpty()) {
-                                ActivityLabelCache.putAll(
+                                ActivityLabelCache.putForPackage(
                                     this@AppDetailActivity, pkg, HashMap(zhDescCache)
                                 )
                             }
@@ -1154,10 +1197,12 @@ class AppDetailActivity : AppCompatActivity() {
                 if (picked.isEmpty()) return@setPositiveButton
                 onDone(
                     when (fill) {
-                        Fill.PAIR -> picked.joinToString(",") { "$it:*" }
-                        Fill.LIST -> picked.joinToString(",")
+                        // 旧条目原样保留（含右栏具体页面），仅新增项才写成「页面:*」
+                        Fill.PAIR -> picked.joinToString(",") { entryByKey[it] ?: "$it:*" }
+                        // 旧条目原样保留（含 :模式码 等后缀），新增项写裸类名
+                        Fill.LIST -> picked.joinToString(",") { entryByKey[it] ?: it }
                         // 系统规则要求「包名/类名」格式（ComponentName 风格），与内置规则一致
-                        Fill.PKG_CLASS -> picked.joinToString(",") { toPkgClassForm(it) }
+                        Fill.PKG_CLASS -> picked.joinToString(",") { entryByKey[it] ?: toPkgClassForm(it) }
                         // PLACEHOLDER 已在函数入口分流到专用选择器
                         Fill.PLACEHOLDER -> picked.joinToString(",")
                     }
@@ -1202,6 +1247,9 @@ class AppDetailActivity : AppCompatActivity() {
         val cachedLabels = ActivityLabelCache.getAllForPackage(this, pkg)
         // 可变中文说明表：初始取本地缓存，AI 补全后实时更新
         val zhDescMap = HashMap(cachedLabels)
+        // 角色缓存：命中则直接复用上次 AI 判定，只对缺失页面发起增量请求
+        val cachedRoles = PageRoleCache.getAllForPackage(this, pkg)
+        val roleMap = HashMap(cachedRoles)
         val items = acts.mapNotNull { a ->
             a.name?.let { name ->
                 val label = runCatching { a.loadLabel(pm).toString() }.getOrDefault("")
@@ -1306,15 +1354,44 @@ class AppDetailActivity : AppCompatActivity() {
             setPadding(0, (dp * 12).toInt(), 0, (dp * 4).toInt())
         }
 
+        // 解析一批角色回复：Activity类名|角色|中文说明
+        fun parsePairRoleReply(reply: String) {
+            reply.lines().forEach { line ->
+                val parts = line.trim().split("|", "：", ":", limit = 3)
+                if (parts.size >= 2) {
+                    val actName = parts[0].trim().removePrefix("★").trim()
+                    if (items.none { it.name == actName }) return@forEach
+                    val tag = parts[1].trim()
+                    when {
+                        tag.contains("占位") -> roleMap[actName] = "占位页面"
+                        tag.contains("主") -> roleMap[actName] = "主页面"
+                    }
+                    if (parts.size >= 3 && parts[2].trim().isNotEmpty()) {
+                        zhDescMap[actName] = parts[2].trim()
+                    }
+                }
+            }
+        }
+
+        // 按角色结果汇总「主页面 / 占位页面」并写回两段选择，缓存命中与增量请求两路复用
+        fun applyPairSelection(): Pair<String?, String?> {
+            val pickedPrimary: String? =
+                items.firstOrNull { it.isMain && roleMap[it.name] == "主页面" }?.name
+                    ?: items.firstOrNull { roleMap[it.name] == "主页面" }?.name
+                    ?: launcher?.takeIf { name -> items.any { it.name == name } }
+            val pickedPlaceholder: String? =
+                items.firstOrNull { roleMap[it.name] == "占位页面" && it.name != pickedPrimary }?.name
+            if (pickedPrimary != null) primaryAdapter.selected = pickedPrimary
+            if (pickedPlaceholder != null) placeholderAdapter.selected = pickedPlaceholder
+            return pickedPrimary to pickedPlaceholder
+        }
+
         // AI 已配置时提供「推荐配对」与「补全中文说明」（分批，带状态显示）
         val aiConfigured = ModelManager.getCurrent(this) != null
         var aiBtnRow: LinearLayout? = null
         var aiStatus: AiStatusRow? = null
         if (aiConfigured) {
             aiStatus = createAiStatusRow()
-
-            // 角色归类结果：类名 → 主页面/占位页面
-            val roleMap = HashMap<String, String>()
 
             var btnRecommend: com.google.android.material.button.MaterialButton? = null
             var btnFillDesc: com.google.android.material.button.MaterialButton? = null
@@ -1323,71 +1400,46 @@ class AppDetailActivity : AppCompatActivity() {
                     val status = aiStatus!!
                     val btns = arrayOf(btnRecommend!!, btnFillDesc!!)
                     lifecycleScope.launch {
+                        // 增量：只请求尚无角色判定的页面，命中缓存的直接复用
+                        val pending = items.filter { roleMap[it.name].isNullOrEmpty() }
+                            .map { it.name }
+                        if (pending.isEmpty()) {
+                            updateAiStatus(
+                                status, false,
+                                "已从缓存加载 ${items.size} 个页面角色", *btns
+                            )
+                            applyPairSelection()
+                            return@launch
+                        }
                         updateAiStatus(
                             status, true,
-                            "AI 分析配对中 0/${items.size}（准备请求…）", *btns
+                            "AI 分析配对中 0/${pending.size}（准备请求…）", *btns
                         )
                         val totalBatches =
-                            (items.size + AI_BATCH_SIZE - 1) / AI_BATCH_SIZE
+                            (pending.size + AI_BATCH_SIZE - 1) / AI_BATCH_SIZE
                         val okBatches = runAiBatches(
-                            names = items.map { it.name },
+                            names = pending,
                             onStatus = { done, total, no, cnt ->
                                 updateAiStatus(
                                     status, true,
                                     "AI 分析配对中 $done/$total（第 $no/$cnt 批）", *btns
                                 )
                             },
-                            buildMessages = { batch ->
-                                val prompt = buildString {
-                                    appendLine("请分析 $pkg 的以下 Android Activity 页面，逐个标注角色。")
-                                    appendLine("角色取值：")
-                                    appendLine("主页面：应用启动后首先进入的核心主页面/首页（通常是标 ★ 的启动页）")
-                                    appendLine("占位页面：适合作为右栏默认显示的页面；优先内容简单的列表页、引导页、空白页；登录、验证码、网页验证类不要选")
-                                    appendLine("其他：其余页面")
-                                    appendLine("页面列表：")
-                                    batch.forEach { appendLine("  $it") }
-                                    appendLine()
-                                    appendLine("每行格式：Activity类名|角色|中文说明（无说明可省略第三段）")
-                                }
-                                listOf(
-                                    AiClient.ChatMessage(
-                                        "system",
-                                        "你是 Android 应用分析助手，只按规定格式逐行返回，不要解释。"
-                                    ),
-                                    AiClient.ChatMessage("user", prompt)
-                                )
-                            },
+                            buildMessages = { batch -> buildPairRoleMessages(pkg, batch) },
                             onBatch = { reply ->
-                                reply.lines().forEach { line ->
-                                    val parts = line.trim().split("|", "：", ":", limit = 3)
-                                    if (parts.size >= 2) {
-                                        val actName = parts[0].trim().removePrefix("★").trim()
-                                        if (items.none { it.name == actName }) return@forEach
-                                        val tag = parts[1].trim()
-                                        when {
-                                            tag.contains("占位") -> roleMap[actName] = "占位页面"
-                                            tag.contains("主") -> roleMap[actName] = "主页面"
-                                        }
-                                        if (parts.size >= 3 && parts[2].trim().isNotEmpty()) {
-                                            zhDescMap[actName] = parts[2].trim()
-                                        }
-                                    }
-                                }
+                                parsePairRoleReply(reply)
                             }
                         )
                         // 汇总选择：主页面优先启动页，其次第一个「主页面」；占位页不能与主页面相同
-                        var pickedPrimary: String? =
-                            items.firstOrNull { it.isMain && roleMap[it.name] == "主页面" }?.name
-                                ?: items.firstOrNull { roleMap[it.name] == "主页面" }?.name
-                                ?: launcher?.takeIf { name -> items.any { it.name == name } }
-                        var pickedPlaceholder: String? =
-                            items.firstOrNull { roleMap[it.name] == "占位页面" && it.name != pickedPrimary }?.name
-                        if (pickedPrimary != null) primaryAdapter.selected = pickedPrimary
-                        if (pickedPlaceholder != null) placeholderAdapter.selected = pickedPlaceholder
+                        val (pickedPrimary, pickedPlaceholder) = applyPairSelection()
                         if (zhDescMap.isNotEmpty()) {
-                            ActivityLabelCache.putAll(
+                            ActivityLabelCache.putForPackage(
                                 this@AppDetailActivity, pkg, HashMap(zhDescMap)
                             )
+                        }
+                        // 角色结果落盘，下次打开直接复用，避免重复请求
+                        if (roleMap.isNotEmpty()) {
+                            PageRoleCache.putForPackage(this@AppDetailActivity, pkg, HashMap(roleMap))
                         }
                         primaryAdapter.notifyDataSetChanged()
                         placeholderAdapter.notifyDataSetChanged()
@@ -1444,7 +1496,7 @@ class AppDetailActivity : AppCompatActivity() {
                         }
                     )
                     if (zhDescMap.isNotEmpty()) {
-                        ActivityLabelCache.putAll(
+                        ActivityLabelCache.putForPackage(
                             this@AppDetailActivity, pkg, HashMap(zhDescMap)
                         )
                     }
@@ -1562,13 +1614,15 @@ class AppDetailActivity : AppCompatActivity() {
         items: List<Pair<String, String>>,
         fieldContext: String
     ): String {
+        // 键必须与 txt() 调用处的 key 一致（fieldContext 即该 key），否则分支永不命中、
+        // AI 推荐退化为泛化提示且不再产出「适合」自动勾选
         val contextHint = when (fieldContext) {
             "activityRule" -> "应该参与分屏的页面"
             "splitPairRule" -> "应该参与左右栏配对的页面"
             "placeholder" -> "适合作为右栏默认显示的页面"
-            "relaunchRule", "relunchRule" -> "需要重启才能正常显示的页面"
-            "forcePortraitActivity" -> "应该始终竖着显示的页面"
-            "sizeCompatRule" -> "需要尺寸兼容处理的页面"
+            "relaunchRule", "embRelaunchRule", "foRelaunchRule" -> "需要重启才能正常显示的页面"
+            "forcePortraitActivity", "foForcePortraitActivity" -> "应该始终竖着显示的页面"
+            "sizecompatRule" -> "需要尺寸兼容处理的页面"
             "autoUiActivityRule" -> "需要界面自动适配的页面"
             "flags" -> "有特殊标记需求的页面"
             else -> "适合该功能的页面"
@@ -1577,8 +1631,8 @@ class AppDetailActivity : AppCompatActivity() {
         val tagHint = when (fieldContext) {
             "activityRule", "splitPairRule" -> "主页面、详情页、列表页、播放页"
             "placeholder" -> "主页面、启动页"
-            "forcePortraitActivity" -> "登录页、设置页、弹窗、表单页"
-            "relaunchRule", "relunchRule" -> "设置页、特殊功能页"
+            "forcePortraitActivity", "foForcePortraitActivity" -> "登录页、设置页、弹窗、表单页"
+            "relaunchRule", "embRelaunchRule", "foRelaunchRule" -> "设置页、特殊功能页"
             else -> ""
         }
 
@@ -1641,11 +1695,11 @@ class AppDetailActivity : AppCompatActivity() {
         }
         // 批量缓存到本地
         if (packageName.isNotEmpty() && cachedLabels.isNotEmpty()) {
-            ActivityLabelCache.putAll(this, packageName, cachedLabels)
+            ActivityLabelCache.putForPackage(this, packageName, cachedLabels)
         }
         // 推荐标签按「包名+场景」维度缓存，下次打开不再重复请求
         if (packageName.isNotEmpty() && fieldContext.isNotEmpty()) {
-            AiSuggestCache.putAll(this, packageName, fieldContext, cachedTags)
+            AiSuggestCache.putForPackage(this, packageName, fieldContext, cachedTags)
         }
     }
 
@@ -1826,6 +1880,29 @@ class AppDetailActivity : AppCompatActivity() {
         )
     )
 
+    /**
+     * 占位页配对：角色标注请求消息。
+     * 独立为公共方法（原先内联在按钮回调里），便于复用与后续统一调整提示词。
+     */
+    private fun buildPairRoleMessages(pkg: String, batch: List<String>): List<AiClient.ChatMessage> = listOf(
+        AiClient.ChatMessage(
+            "system",
+            "你是 Android 应用分析助手，只按规定格式逐行返回，不要解释。"
+        ),
+        AiClient.ChatMessage(
+            "user",
+            buildString {
+                appendLine("分析 $pkg 的 Activity，为每个页面标注角色。")
+                appendLine("主页面：启动后首先进入的核心首页（通常是标 ★ 的启动页）")
+                appendLine("占位页面：适合右栏默认显示，优先内容简单的列表页/引导页/空白页；登录、验证码、网页验证类不要选")
+                appendLine("其他：其余页面")
+                appendLine("页面列表：")
+                batch.forEach { appendLine("  $it") }
+                appendLine("每行格式：Activity类名|角色|中文说明（无说明可省略第三段）")
+            }
+        )
+    )
+
     /** 解析「类名|中文说明」回复到 [out] */
     private fun parseFillDescReply(reply: String, out: HashMap<String, String>) {
         reply.lines().forEach { line ->
@@ -1868,6 +1945,9 @@ class AppDetailActivity : AppCompatActivity() {
      * 同时弹窗展示 JSON，长按或点「复制」可复制内容。
      */
     private fun exportCurrentRule() {
+        // 导出的是界面当前状态：pendingMode 尚未写入 rule.mode（只在保存时写入），
+        // 不同步会让导出文件的 mode 与表单显示不一致
+        rule.mode = pendingMode
         val dir = java.io.File(getExternalFilesDir(null), "export").apply { mkdirs() }
         val file = java.io.File(dir, "magicwindow_${pkg}_${System.currentTimeMillis()}.json")
         val json = McpServer.buildRulesJson(listOf(rule)).toString(2)
@@ -1955,7 +2035,11 @@ class AppDetailActivity : AppCompatActivity() {
                 userSaved = true
                 dirty = true
                 binding.switchEnabled.isChecked = rule.enabled
+                // 程序化 check：只同步 pendingMode，不能触发 applyModeDefaults 覆盖导入值
+                suppressModeSideEffects = true
                 binding.modeGroup.check(ModeUi.buttonOf(rule.mode))
+                suppressModeSideEffects = false
+                pendingMode = rule.mode
                 updateModeDesc()
                 buildForm()
                 Snackbar.make(binding.root, R.string.import_rule_done, Snackbar.LENGTH_LONG).show()

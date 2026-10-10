@@ -1,37 +1,23 @@
 package com.github.lsposed.magicwindow.data
 
 import android.content.Context
-import org.json.JSONObject
 
 /**
  * Activity 中文描述缓存。
  * AI 补全的中文说明持久化到本地，避免重复消耗 token。
+ * 容量上限见 [MAX_ENTRIES]，超限按访问时间淘汰最旧条目。
  */
-object ActivityLabelCache {
-    private const val PREFS = "activity_label_cache"
-
-    private fun prefs(context: Context) =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+object ActivityLabelCache : PrefixedLruCache("activity_label_cache", MAX_ENTRIES) {
+    override fun prefixOf(packageName: String, dimension: String) = "$packageName|"
 
     /** 获取整个包名下的所有缓存 */
-    fun getAllForPackage(context: Context, packageName: String): Map<String, String> {
-        val prefix = "$packageName|"
-        val result = mutableMapOf<String, String>()
-        prefs(context).all.forEach { (key, value) ->
-            if (key.startsWith(prefix) && value is String) {
-                val actName = key.removePrefix(prefix)
-                result[actName] = value
-            }
-        }
-        return result
-    }
+    fun getAllForPackage(context: Context, packageName: String): Map<String, String> =
+        getAll(context, packageName)
 
     /** 批量保存缓存 */
-    fun putAll(context: Context, packageName: String, labels: Map<String, String>) {
-        val editor = prefs(context).edit()
-        labels.forEach { (actName, label) ->
-            editor.putString("$packageName|$actName", label)
-        }
-        editor.apply()
-    }
+    fun putForPackage(context: Context, packageName: String, labels: Map<String, String>) =
+        putAll(context, packageName, "", labels)
 }
+
+/** 条目上限：约 200 个应用 × 10 个页面 */
+private const val MAX_ENTRIES = 2000

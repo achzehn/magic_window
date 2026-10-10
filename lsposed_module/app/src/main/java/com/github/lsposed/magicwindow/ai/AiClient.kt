@@ -239,7 +239,24 @@ class AiClient(private val context: Context) {
                                         ?.optJSONObject(0)?.optJSONObject("message")
                                     if (msg != null) {
                                         if (!msg.isNull("content")) content.append(msg.optString("content"))
-                                        finish = "stop"
+                                        // 普通 JSON 响应同样可能携带 tool_calls，不组装会整段丢弃 function calling
+                                        msg.optJSONArray("tool_calls")?.let { tcs ->
+                                            for (i in 0 until tcs.length()) {
+                                                val tc = tcs.getJSONObject(i)
+                                                val idx = tc.optInt("index", i)
+                                                val id = tc.optString("id")
+                                                if (id.isNotEmpty()) toolIds[idx] = id
+                                                tc.optJSONObject("function")?.let { fn ->
+                                                    val n = fn.optString("name")
+                                                    if (n.isNotEmpty()) toolNames[idx] = n
+                                                    val argsStr = fn.optString("arguments")
+                                                    if (argsStr.isNotEmpty()) {
+                                                        toolArgs.getOrPut(idx) { StringBuilder() }.append(argsStr)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        finish = if (toolIds.isNotEmpty()) "tool_calls" else "stop"
                                         break
                                     }
                                 }
@@ -271,7 +288,9 @@ class AiClient(private val context: Context) {
                                                 if (fn != null) {
                                                     if (!fn.isNull("name")) {
                                                         val n = fn.optString("name")
-                                                        if (n.isNotEmpty()) toolNames[idx] = (toolNames[idx] ?: "") + n
+                                                        // 只取首段：OpenAI 官方 name 在首个 delta 一次性给全，
+                                                        // 部分网关每个 delta 重复携带全名，追加会拼成 "search_appssearch_apps"
+                                                        if (n.isNotEmpty() && toolNames[idx] == null) toolNames[idx] = n
                                                     }
                                                     if (!fn.isNull("arguments")) {
                                                         toolArgs.getOrPut(idx) { StringBuilder() }

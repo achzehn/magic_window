@@ -43,7 +43,9 @@ object RuleDiagnostics {
 
         // 逗号分隔的纯全类名列表（embedded activityRule / transitionRules）
         fun checkPlainList(field: String, raw: String) {
-            raw.split(',', ';').map { it.trim() }.filter { it.isNotEmpty() }.forEach { checkExists(field, it) }
+            // 系统只认逗号；若用了分号（autoui 风格）按整串检查会漏报——显式提示
+            if (';' in raw) issue("warning", field, "该字段使用了分号分隔，系统格式为逗号分隔，请改为逗号")
+            raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.forEach { checkExists(field, it) }
         }
 
         // 「包名/类名」格式列表（forcePortraitActivity 系列）
@@ -67,11 +69,14 @@ object RuleDiagnostics {
         }
 
         // —— 通用数值 ——
-        rule.splitRatio.takeIf { it.isNotEmpty() }?.let {
-            val v = it.toFloatOrNull()
-            when {
-                v == null -> issue("error", "splitRatio", "取值 $it 不是数字")
-                v < 0.1f || v > 0.9f -> issue("error", "splitRatio", "取值 $it 超出 0.1~0.9 范围")
+        // splitRatio 仅 embedding 模式写入系统（fixed/off 模式下残留的旧值不算错误）
+        if (rule.mode == WindowMode.EMBEDDING) {
+            rule.splitRatio.takeIf { it.isNotEmpty() }?.let {
+                val v = it.toFloatOrNull()
+                when {
+                    v == null -> issue("error", "splitRatio", "取值 $it 不是数字")
+                    v < 0.1f || v > 0.9f -> issue("error", "splitRatio", "取值 $it 超出 0.1~0.9 范围")
+                }
             }
         }
 
@@ -190,6 +195,7 @@ object RuleDiagnostics {
                             conflict("info", "系统已内置固定横屏规则，优先级高于通用全屏")
                         }
                     }
+                    WindowMode.OFF -> conflict("info", "模式为 off（不处理该应用），模块不会注入，规则不生效")
                     else -> Unit
                 }
                 if (rule.autoUiEnable && SystemRuleSource.has(SystemRuleSource.Kind.AUTO_UI, pkg)) {
@@ -300,9 +306,10 @@ object RuleDiagnostics {
 
     /** 读 crash 缓冲区并按事件分组，只保留与目标应用相关的崩溃（进程行含包名或进程名匹配） */
     private fun readCrashEvents(pkg: String): List<JSONObject> {
-        val text = runSu("logcat -d -b crash -t 400") ?: return emptyList()
-        // logcat 行头：MM-dd HH:mm:ss.mmm PID TID LEVEL TAG: msg
-        val header = Regex("^(\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d+)")
+        // -v long：头行独立为 `[ 日期 时间 pid:tid 级别 tag ]`，消息行不带时间戳前缀。
+        // 默认 threadtime 格式每一行（含堆栈续行）都带时间戳头，按头分组会把事件切碎
+        val text = runSu("logcat -d -b crash -t 400 -v long") ?: return emptyList()
+        val header = Regex("^\\[ \\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d+")
         val events = mutableListOf<JSONObject>()
         var current: StringBuilder? = null
         fun flush() {
@@ -335,18 +342,26 @@ object RuleDiagnostics {
      * 4. 失败静默返回 null，绝不重试执行非白名单命令
      */
     private val SU_READ_ONLY_WHITELIST = setOf(
-        "logcat -d -b crash -t 400",   // 读取崩溃缓冲区（只读，-d dump 后立即退出）
+        "logcat -d -b crash -t 400 -v long",   // 读取崩溃缓冲区（只读，-d dump 后立即退出）
     )
 
-    /** 通过 su 执行白名单内的只读命令并返回 stdout（与 SystemRuleSource 同款调用方式） */
+    /** 通过 su 执行白名单内的只读命令并返回 stdout（与 SystemRuleSource 同款并发排空调用方式） */
     private fun runSu(cmd: String): String? {
         if (cmd !in SU_READ_ONLY_WHITELIST) return null
         return try {
             val process = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
+            // stdout/stderr 必须并发排空：日志超过管道缓冲（约 64KB）时，
+            // 只排空 stderr 而等进程退出后再读 stdout 会让 logcat 写满管道挂死直至超时
+            val outBuf = StringBuilder()
+            val outThread = Thread {
+                runCatching { process.inputStream.bufferedReader().forEachLine { outBuf.appendLine(it) } }
+            }.apply { isDaemon = true }
             val errThread = Thread { runCatching { process.errorStream.bufferedReader().readText() } }.apply { isDaemon = true }
+            outThread.start()
             errThread.start()
             val ok = process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
-            val out = if (ok) process.inputStream.bufferedReader().readText() else null
+            outThread.join(2000)
+            val out = if (ok) outBuf.toString() else null
             process.destroy()
             out
         } catch (t: Throwable) {
@@ -355,10 +370,16 @@ object RuleDiagnostics {
     }
 
     /** 「包名/类名」还原为全类名（兼容 .相对类名 / 包名+全类名 / 纯全类名三种写法） */
-    internal fun flattenPkgClass(value: String): String =
-        if ('/' in value) {
-            value.substringBefore('/') + "." + value.substringAfter('/').removePrefix(".")
-        } else value
+    internal fun flattenPkgClass(value: String): String {
+        if ('/' !in value) return value
+        val pkg = value.substringBefore('/')
+        val cls = value.substringAfter('/')
+        return when {
+            cls.startsWith(".") -> pkg + cls          // com.a/.ui.Main → com.a.ui.Main
+            cls.contains('.') -> cls                  // com.a/com.a.ui.Main → com.a.ui.Main（已是全类名，不能再拼包名）
+            else -> "$pkg.$cls"                       // com.a/Main → com.a.Main
+        }
+    }
 
     private fun installedActivities(context: Context, pkg: String): Set<String> =
         runCatching {

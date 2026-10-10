@@ -12,6 +12,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.lsposed.magicwindow.R
 import com.github.lsposed.magicwindow.data.AppItem
 import com.github.lsposed.magicwindow.data.ConfigRepository
+import com.github.lsposed.magicwindow.data.SystemRuleSource
 import com.github.lsposed.magicwindow.databinding.ItemAppBinding
 import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.ThreadPoolExecutor
@@ -48,8 +49,13 @@ class AppAdapter(
     private val iconQueue = object : LinkedBlockingDeque<Runnable>() {
         override fun offer(e: Runnable): Boolean = offerFirst(e)
     }
+
+    // 空闲线程超时退出：core=2 且不超时的话，2 条 worker 线程经匿名队列 → 适配器 →
+    // onClick 闭包永久持有 AppListActivity，每次进入列表泄漏一个 Activity 实例
     private val iconExecutor =
-        ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, iconQueue)
+        ThreadPoolExecutor(2, 2, 30L, TimeUnit.SECONDS, iconQueue).apply {
+            allowCoreThreadTimeOut(true)
+        }
     private val mainHandler = Handler(Looper.getMainLooper())
 
     init {
@@ -120,11 +126,16 @@ class AppAdapter(
             }
         }
 
-        // 内置徽标文案：缓存
-        if (!badgeCache.containsKey(item.packageName)) {
-            badgeCache[item.packageName] = BuiltinUi.badge(ctx, item.packageName)
+        // 内置徽标文案：缓存。规则表未加载完成时 kindsOf 恒为空，此时缓存 null
+        // 会让首屏徽标直到 Activity 重建前永远不出现——未加载时现算不缓存
+        val badge = if (SystemRuleSource.loaded) {
+            if (!badgeCache.containsKey(item.packageName)) {
+                badgeCache[item.packageName] = BuiltinUi.badge(ctx, item.packageName)
+            }
+            badgeCache[item.packageName]
+        } else {
+            BuiltinUi.badge(ctx, item.packageName)
         }
-        val badge = badgeCache[item.packageName]
         if (badge == null) {
             b.tvBuiltin.visibility = View.GONE
         } else {

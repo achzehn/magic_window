@@ -27,9 +27,10 @@ object ConfigExporter {
             val json = McpServer.buildRulesJson(rules).toString(2)
 
             val contentResolver = context.contentResolver
-            contentResolver.openOutputStream(destinationUri)?.use { outputStream ->
-                outputStream.write(json.toByteArray(Charsets.UTF_8))
-            }
+            // openOutputStream 可能返回 null（而非抛异常）；此前静默跳过写入仍返回 true，
+            // 导致 UI 报「导出成功」但目标文件为空
+            val outputStream = contentResolver.openOutputStream(destinationUri) ?: return false
+            outputStream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
 
             true
         } catch (e: Exception) {

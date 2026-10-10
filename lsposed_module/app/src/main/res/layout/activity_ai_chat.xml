@@ -29,18 +29,22 @@
         android:paddingTop="8dp"
         android:paddingBottom="8dp" />
 
-    <!-- 工具执行状态 -->
+    <!-- 工具执行状态：胶囊内嵌状态点，与输入区同宽留白 -->
     <TextView
         android:id="@+id/tvToolStatus"
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:paddingHorizontal="20dp"
-        android:paddingVertical="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginHorizontal="@dimen/page_padding"
+        android:layout_marginBottom="4dp"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="5dp"
         android:textSize="11sp"
         android:textColor="?attr/colorPrimary"
         android:background="@drawable/bg_chip"
-        android:visibility="gone"
-        android:drawablePadding="6dp" />
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:visibility="gone" />
 
     <!-- 附件预览区 -->
     <androidx.recyclerview.widget.RecyclerView
@@ -51,7 +55,7 @@
         android:orientation="horizontal"
         android:visibility="gone" />
 
-    <!-- 输入区域（底部圆角卡片风格） -->
+    <!-- 输入区域 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -83,30 +87,13 @@
                 android:contentDescription="@string/ai_attach"
                 android:scaleType="centerInside" />
 
-            <!-- 模型切换按钮 -->
-            <TextView
-                android:id="@+id/btnModelSwitch"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:layout_marginStart="6dp"
-                android:paddingHorizontal="10dp"
-                android:gravity="center"
-                android:textSize="11sp"
-                android:textColor="?attr/colorPrimary"
-                android:background="@drawable/bg_chip"
-                android:drawableEnd="@drawable/ic_chevron_down"
-                android:drawablePadding="2dp"
-                android:singleLine="true"
-                android:maxWidth="140dp"
-                android:layout_marginEnd="6dp"
-                android:contentDescription="@string/ai_model_switch" />
-
             <!-- 输入框 -->
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etInput"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:layout_marginStart="8dp"
                 android:background="@drawable/bg_input"
                 android:hint="@string/ai_input_hint"
                 android:maxLines="6"
@@ -128,6 +115,24 @@
                 app:fabCustomSize="40dp"
                 app:maxImageSize="20dp" />
         </LinearLayout>
+
+        <!-- 模型切换下沉到输入区下一行，主行只留「附件 / 输入 / 发送」三个核心动作 -->
+        <TextView
+            android:id="@+id/btnModelSwitch"
+            android:layout_width="wrap_content"
+            android:layout_height="28dp"
+            android:layout_marginStart="@dimen/page_padding"
+            android:layout_marginBottom="8dp"
+            android:paddingHorizontal="10dp"
+            android:gravity="center"
+            android:textSize="11sp"
+            android:textColor="?attr/colorPrimary"
+            android:background="@drawable/bg_chip"
+            android:drawableStart="@drawable/ic_tune"
+            android:drawablePadding="4dp"
+            android:singleLine="true"
+            android:maxWidth="220dp"
+            android:contentDescription="@string/ai_model_switch" />
     </LinearLayout>
 
 </LinearLayout>

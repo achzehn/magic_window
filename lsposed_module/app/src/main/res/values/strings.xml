@@ -208,6 +208,13 @@
     <string name="ai_model_tokens">上下文窗口（Token）</string>
     <string name="ai_model_tool_rounds">工具调用轮数</string>
     <string name="ai_model_sampling">采样参数</string>
+    <string name="ai_model_delete">删除模型</string>
+    <string name="ai_model_delete_confirm">确定要删除「%1$s」吗？</string>
+    <string name="ai_model_input_tokens">输入 Token</string>
+    <string name="ai_model_output_tokens">输出 Token</string>
+    <string name="ai_model_temperature">Temperature</string>
+    <string name="ai_model_top_p">Top P</string>
+    <string name="ai_model_top_k">Top K</string>
 
     <!-- AI 页面推荐 -->
     <string name="ai_suggest_pages">AI 推荐页面</string>

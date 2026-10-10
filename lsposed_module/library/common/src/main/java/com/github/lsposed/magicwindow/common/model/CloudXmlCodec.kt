@@ -29,8 +29,12 @@ object CloudXmlCodec {
     private const val ROOT_EMBEDDING = "packageRules"
     private const val ROOT_FIXED = "fixedOrientationRules"
 
-    /** 解析一份云控 XML 文本为「包名 → 属性表」。无法解析时返回空表。 */
-    fun parse(text: String): MutableMap<String, MutableMap<String, String>> {
+    /**
+     * 解析一份云控 XML 文本为「包名 → 属性表」。
+     * 空白文本返回空表（视为无云控）；内容非空但解析失败返回 null（文件损坏）——
+     * 调用方必须区分两者：损坏时若回落本地名单并写回，会丢弃云控文件里的系统条目。
+     */
+    fun parse(text: String): MutableMap<String, MutableMap<String, String>>? {
         val result = LinkedHashMap<String, MutableMap<String, String>>()
         if (text.isBlank()) return result
         runCatching {
@@ -50,7 +54,7 @@ object CloudXmlCodec {
                 }
                 event = parser.next()
             }
-        }
+        }.onFailure { return null }
         return result
     }
 
@@ -132,7 +136,9 @@ object CloudXmlCodec {
         if (rule.disableCameraPreview) put("disableCameraPreview", "true")
         if (rule.embForceKillWhenSwitch) put("forceKillWhenSwitch", "true")
 
-        putIfNotEmpty("splitRatio", rule.splitRatio)
+        // splitRatio 必须是数字（系统按 float 解析），与 scaleMode/adaptCutout 同款过滤，
+        // MCP/AI/导入传入的非数字值不能进系统文件
+        rule.splitRatio.takeIf { it.toFloatOrNull() != null }?.let { put("splitRatio", it) }
         putIfNotEmpty("activityRule", rule.activityRule)
         putIfNotEmpty("splitPairRule", rule.splitPairRule)
         putIfNotEmpty("placeholder", rule.placeholder)

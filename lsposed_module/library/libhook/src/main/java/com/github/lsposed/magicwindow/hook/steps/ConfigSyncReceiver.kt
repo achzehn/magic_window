@@ -49,10 +49,10 @@ object ConfigSyncReceiver {
     }
 
     fun register(systemContext: Context) {
-        tryRegister(systemContext, retriesLeft = MAX_RETRIES)
+        tryRegister(systemContext, attempts = 0)
     }
 
-    private fun tryRegister(systemContext: Context, retriesLeft: Int) {
+    private fun tryRegister(systemContext: Context, attempts: Int) {
         runCatching {
             systemContext.registerReceiver(
                 receiver,
@@ -61,12 +61,13 @@ object ConfigSyncReceiver {
             )
             XLog.i("配置热更新广播已注册")
         }.onFailure {
-            if (retriesLeft <= 0) {
-                XLog.e("注册配置广播失败（保存规则后将需要重启生效）", it)
-                return
+            // 一直重试直到成功（与类注释承诺一致）：放弃注册意味着热更新链路
+            // 永久失效、保存规则必须重启才生效；只在首次与第 20 次各打一条日志防刷屏
+            if (attempts == 0 || attempts == MAX_RETRIES) {
+                XLog.e("注册配置广播失败（第 ${attempts + 1} 次），将持续重试", it)
             }
             android.os.Handler(systemContext.mainLooper).postDelayed(
-                { tryRegister(systemContext, retriesLeft - 1) },
+                { tryRegister(systemContext, attempts + 1) },
                 RETRY_INTERVAL_MS
             )
         }

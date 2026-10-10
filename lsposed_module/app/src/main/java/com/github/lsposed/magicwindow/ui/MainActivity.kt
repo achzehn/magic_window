@@ -332,15 +332,15 @@ class MainActivity : AppCompatActivity() {
             etTopK.setText(model.topK.toString())
         }
 
-        // 高级配置折叠
+        // 高级配置折叠：收起时箭头旋转 -90°，展开时归位，形成连续的方向反馈
+        val advancedArrow = btnAdvanced.findViewById<View>(
+            com.google.android.material.R.id.icon
+        )
+        advancedArrow?.rotation = -90f
         btnAdvanced.setOnClickListener {
-            if (layoutAdvanced.visibility == View.VISIBLE) {
-                layoutAdvanced.visibility = View.GONE
-                btnAdvanced.setIconResource(android.R.drawable.arrow_down_float)
-            } else {
-                layoutAdvanced.visibility = View.VISIBLE
-                btnAdvanced.setIconResource(android.R.drawable.arrow_up_float)
-            }
+            val expand = layoutAdvanced.visibility != View.VISIBLE
+            layoutAdvanced.visibility = if (expand) View.VISIBLE else View.GONE
+            advancedArrow?.animate()?.rotation(if (expand) 0f else -90f)?.setDuration(150)?.start()
         }
 
         // 连通性测试门禁：记录测试通过时的连接三元组；任一字段改动即失效，保存前强制重测
@@ -511,11 +511,28 @@ class MainActivity : AppCompatActivity() {
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                 val model = currentModels[position]
                 val isCurrent = ModelManager.getCurrent(this@MainActivity)?.id == model.id
+                // 行容器：当前模型用抬高卡片底色 + 品牌色描边区分，停用模型整体降透明度
                 val row = LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    minimumHeight = dp(56)
-                    setPadding(0, dp(6), 0, dp(6))
+                    minimumHeight = dp(62)
+                    setPadding(dp(10), dp(6), dp(4), dp(6))
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        cornerRadius = dp(14).toFloat()
+                        setColor(
+                            ContextCompat.getColor(
+                                this@MainActivity,
+                                if (isCurrent) R.color.card_bg_high else android.R.color.transparent
+                            )
+                        )
+                        if (isCurrent) {
+                            setStroke(
+                                dp(1),
+                                ContextCompat.getColor(this@MainActivity, R.color.brand_primary)
+                            )
+                        }
+                    }
+                    alpha = if (model.enabled) 1f else 0.55f
                 }
 
                 // 左侧信息列：模型名(+当前标记) / 模型ID
@@ -561,13 +578,22 @@ class MainActivity : AppCompatActivity() {
                 }
                 nameRow.addView(tvName)
 
-                // 当前模型标记
+                // 当前模型标记：胶囊样式，绿色文字 + 浅绿底
                 if (isCurrent) {
                     nameRow.addView(TextView(this@MainActivity).apply {
-                        text = "当前"
+                        text = getString(R.string.ai_current_model)
                         textSize = 10f
                         setTextColor(ContextCompat.getColor(this@MainActivity, R.color.ok_green))
-                        setPadding(dp(6), 0, 0, 0)
+                        background = android.graphics.drawable.GradientDrawable().apply {
+                            cornerRadius = dp(8).toFloat()
+                            setColor(ContextCompat.getColor(this@MainActivity, R.color.ok_green_bg))
+                        }
+                        setPadding(dp(7), dp(2), dp(7), dp(2))
+                        val lp = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply { marginStart = dp(6) }
+                        layoutParams = lp
                     })
                 }
                 infoLayout.addView(nameRow)
@@ -584,10 +610,10 @@ class MainActivity : AppCompatActivity() {
 
                 // 编辑（含高级设置）
                 val btnEdit = ImageButton(this@MainActivity).apply {
-                    setImageResource(android.R.drawable.ic_menu_edit)
+                    setImageResource(R.drawable.ic_edit)
                     imageTintList = android.content.res.ColorStateList.valueOf(iconTint)
                     setBackgroundResource(borderlessBg)
-                    val size = dp(40)
+                    val size = dp(38)
                     layoutParams = LinearLayout.LayoutParams(size, size)
                     setPadding(dp(9), dp(9), dp(9), dp(9))
                     contentDescription = getString(R.string.ai_model_edit)
@@ -600,18 +626,18 @@ class MainActivity : AppCompatActivity() {
 
                 // 删除
                 val btnDelete = ImageButton(this@MainActivity).apply {
-                    setImageResource(android.R.drawable.ic_menu_delete)
+                    setImageResource(R.drawable.ic_delete)
                     imageTintList = android.content.res.ColorStateList.valueOf(iconTint)
                     setBackgroundResource(borderlessBg)
-                    val size = dp(40)
+                    val size = dp(38)
                     layoutParams = LinearLayout.LayoutParams(size, size)
                     setPadding(dp(9), dp(9), dp(9), dp(9))
-                    contentDescription = "删除"
+                    contentDescription = getString(R.string.ai_model_delete)
                     setOnClickListener {
                         MaterialAlertDialogBuilder(this@MainActivity)
-                            .setTitle("删除模型")
-                            .setMessage("确定要删除「${model.name}」吗？")
-                            .setPositiveButton("删除") { _, _ ->
+                            .setTitle(R.string.ai_model_delete)
+                            .setMessage(getString(R.string.ai_model_delete_confirm, model.name))
+                            .setPositiveButton(R.string.ai_model_delete) { _, _ ->
                                 ModelManager.delete(this@MainActivity, model.id)
                                 renderAiModelStatus()
                                 if (ModelManager.getAll(this@MainActivity).isEmpty()) {
@@ -623,7 +649,7 @@ class MainActivity : AppCompatActivity() {
                                     modelsReload()
                                 }
                             }
-                            .setNegativeButton("取消", null)
+                            .setNegativeButton(android.R.string.cancel, null)
                             .show()
                     }
                 }

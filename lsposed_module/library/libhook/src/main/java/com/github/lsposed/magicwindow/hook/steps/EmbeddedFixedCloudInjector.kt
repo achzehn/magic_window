@@ -40,31 +40,57 @@ object EmbeddedFixedCloudInjector {
     @Volatile
     private var fixedController: Any? = null
 
-    /** 后台执行注入的线程（只启动一次） */
+    /** 后台执行注入的线程（只启动一次）；与 pending 标志在 [injectLock] 内保护 */
     @Volatile
     private var injectThread: Thread? = null
 
+    /** 线程运行期间到达的新触发不丢弃，消费完才退出 */
+    private var injectPending = false
+
+    private val injectLock = Any()
+
     /** 触发异步注入（拿到实例后立即返回，不阻塞系统启动） */
     private fun injectAsync() {
-        if (injectThread?.isAlive == true) return
-        injectThread = Thread {
-            // 延迟 2 秒，等系统服务完全初始化
-            Thread.sleep(2000)
-            injectNow()
-        }.apply {
-            isDaemon = true
-            start()
+        synchronized(injectLock) {
+            if (injectThread != null) {
+                // 线程在 2s 延迟窗口内运行时，另一实例（如 fixed 晚捕获）的触发若直接丢弃，
+                // 该实例要等下次配置保存才注入——记 pending 让线程补跑一轮
+                injectPending = true
+                return
+            }
+            injectThread = Thread {
+                // 延迟 2 秒，等系统服务完全初始化
+                Thread.sleep(2000)
+                injectNow()
+                while (true) {
+                    val again = synchronized(injectLock) {
+                        if (injectPending) {
+                            injectPending = false
+                            true
+                        } else {
+                            injectThread = null
+                            false
+                        }
+                    }
+                    if (!again) break
+                    injectNow()
+                }
+            }.apply {
+                isDaemon = true
+                start()
+            }
         }
     }
 
     fun apply(pluginClassLoader: ClassLoader) {
-        // 两个解析类都实现自同一个 MiuiSystemEmbeddedRule，先挂 embedding 侧拿 mEmbeddedRule，
-        // fixed 侧通过同一实例的 controller 字段即可拿到，避免重复 hook。
+        // embedding 与 fixed 各挂各的读规则 hook：分别在 loadPackage /
+        // loadLocalFixOrientationRuleXML 后从宿主对象取 mEmbeddedRule、mFixOriController 缓存
         hookEmbedding(pluginClassLoader)
         hookFixed(pluginClassLoader)
     }
 
     /** 配置保存后由 RuleStore.onChange 调用：用缓存实例重新注入并热重载。 */
+    @Synchronized
     fun injectNow() {
         embeddedRule?.let { runCatching { doEmbedding(it) }.onFailure { e -> XLog.e("embedding 热更新失败", e) } }
         fixedController?.let { runCatching { doFixed(it) }.onFailure { e -> XLog.e("fixed 热更新失败", e) } }
@@ -124,7 +150,7 @@ object EmbeddedFixedCloudInjector {
 
         val fingerprint = overrides.toSortedMap().toString() + "|-" + removals.sorted()
         if (fingerprint != embFingerprint) {
-            val base = readBaseTable(cloudFile, Constants.FILES_EMBEDDED_RULES)
+            val base = readBaseTable(cloudFile, Constants.FILES_EMBEDDED_RULES) ?: return
             val merged = LinkedHashMap(CloudXmlCodec.mergeWith(base, overrides))
             removals.forEach { merged.remove(it) }
             val xml = CloudXmlCodec.serialize(merged, CloudXmlCodec.KIND_EMBEDDING)
@@ -190,7 +216,7 @@ object EmbeddedFixedCloudInjector {
         val version = System.currentTimeMillis()
         val fingerprint = overrides.toSortedMap().toString() + "|-" + removals.sorted()
         if (fingerprint != fixedFingerprint) {
-            val base = readBaseTable(cloudFile, Constants.FILES_FIXED_ORI_RULES)
+            val base = readBaseTable(cloudFile, Constants.FILES_FIXED_ORI_RULES) ?: return
             val merged = LinkedHashMap(CloudXmlCodec.mergeWith(base, overrides))
             removals.forEach { merged.remove(it) }
             val xml = CloudXmlCodec.serialize(merged, CloudXmlCodec.KIND_FIXED, version)
@@ -229,7 +255,9 @@ object EmbeddedFixedCloudInjector {
                     else -> 2
                 }
                 WindowMode.FULL_SCREEN -> 3
-                WindowMode.OFF -> return@forEach
+                // 不处理：翻回 0（不处理）。此前直接跳过会让「改为不处理」后
+                // embedded_setting 里残留上次注入的模式值，应用继续按旧模式跑
+                WindowMode.OFF -> 0
             }
             // 比例档的支持标记来自 createSetting 声明（规则列表的 supportModes 不一定覆盖），
             // 先声明再选中，系统才有对应的支持位
@@ -264,10 +292,19 @@ object EmbeddedFixedCloudInjector {
     private fun cloudFile(projection: Boolean, normal: String, proj: String): File =
         File(Constants.CLOUD_RULE_DIR, if (projection) proj else normal)
 
-    /** 读取合并底：云控文件优先，没有再读 /product/etc 本地名单 */
-    private fun readBaseTable(cloudFile: File, localNames: List<String>): Map<String, Map<String, String>> {
+    /**
+     * 读取合并底：云控文件优先，没有再读 /product/etc 本地名单。
+     * 云控文件存在但解析失败（损坏）时返回 null 表示放弃本轮注入——回落本地写回
+     * 会把云控里的系统条目整体覆盖丢失。
+     */
+    private fun readBaseTable(cloudFile: File, localNames: List<String>): Map<String, Map<String, String>>? {
         if (cloudFile.canRead()) {
-            val t = CloudXmlCodec.parse(runCatching { cloudFile.readText() }.getOrDefault(""))
+            val raw = runCatching { cloudFile.readText() }.getOrDefault("")
+            val t = CloudXmlCodec.parse(raw)
+                ?: run {
+                    XLog.e("${cloudFile.name} 解析失败（文件可能损坏），本轮跳过注入以保留云控现有内容")
+                    return null
+                }
             if (t.isNotEmpty()) return t
         }
         for (name in localNames) {
@@ -275,7 +312,7 @@ object EmbeddedFixedCloudInjector {
                 val f = File(dir, name)
                 if (f.canRead()) {
                     val t = CloudXmlCodec.parse(runCatching { f.readText() }.getOrDefault(""))
-                    if (t.isNotEmpty()) return t
+                    if (t != null && t.isNotEmpty()) return t
                 }
             }
         }

@@ -51,13 +51,7 @@ class AppListActivity : AppCompatActivity() {
             onLongClick = { enterSelection(it) },
             onToggle = { toggle(it) }
         )
-        // 手机单列列表；平板（sw600dp+）自动切换为 2~3 列卡片网格
-        val columns = resources.getInteger(R.integer.list_columns)
-        binding.recycler.layoutManager = if (columns > 1) {
-            GridLayoutManager(this, columns)
-        } else {
-            LinearLayoutManager(this)
-        }
+        applyLayoutManager()
         binding.recycler.setHasFixedSize(true)
         binding.recycler.setItemViewCacheSize(20)
         binding.recycler.adapter = adapter
@@ -94,6 +88,24 @@ class AppListActivity : AppCompatActivity() {
         // 首次进入时 HyperOS 会弹「获取已安装应用信息」授权框，授权返回后列表不会自动重建；
         // 此刻 PackageManager 可见应用变多，重新加载一次
         else if (!loading && packageManager.getInstalledApplications(0).size > all.size) loadApps()
+    }
+
+    /**
+     * 手机单列列表；平板（sw600dp+）自动切换为 2~3 列卡片网格。
+     * manifest 声明了 configChanges（不随窗口尺寸重建），折叠/分屏跨越 sw 阈值时需在此重算。
+     */
+    private fun applyLayoutManager() {
+        val columns = resources.getInteger(R.integer.list_columns)
+        binding.recycler.layoutManager = if (columns > 1) {
+            GridLayoutManager(this, columns)
+        } else {
+            LinearLayoutManager(this)
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyLayoutManager()
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {

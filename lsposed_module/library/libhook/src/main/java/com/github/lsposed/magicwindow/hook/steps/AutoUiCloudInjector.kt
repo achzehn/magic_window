@@ -1,6 +1,7 @@
 package com.github.lsposed.magicwindow.hook.steps
 
 import com.github.lsposed.magicwindow.common.Constants
+import com.github.lsposed.magicwindow.common.model.CloudXmlCodec
 import com.github.lsposed.magicwindow.hook.RuleStore
 import com.github.lsposed.magicwindow.hook.XLog
 import de.robv.android.xposed.XC_MethodHook
@@ -98,7 +99,19 @@ object AutoUiCloudInjector {
         val rules = RuleStore.autoUiRules()
         val version = Constants.AUTO_UI_CLOUD_DATA_VERSION
 
+        val cloudFile = java.io.File(Constants.CLOUD_RULE_DIR, Constants.CLOUD_AUTO_UI_FILE)
+
         if (rules.isEmpty()) {
+            // 本开机注入过、现规则全部关闭：删掉模块写下的云控文件让系统回落本地名单。
+            // 否则旧文件 + 之前已抬高的版本号会让「关闭 autoui」在本开机周期内完全无效
+            if (lastFingerprint != null) {
+                runCatching {
+                    cloudFile.delete()
+                    lastFingerprint = null
+                    XLog.i("autoui 规则已全部关闭，已移除云控文件，系统回落本地名单")
+                    return true
+                }.onFailure { XLog.e("清理 autoui 云控文件失败", it) }
+            }
             if (!emptyLogged) {
                 emptyLogged = true
                 XLog.i("无 autoui 规则，跳过落盘（后续不再重复提示）")
@@ -106,10 +119,6 @@ object AutoUiCloudInjector {
             return false
         }
         emptyLogged = false
-        if (version <= Constants.LOCAL_AUTO_UI_DATA_VERSION) {
-            XLog.e("cloudDataVersion=$version 未超过本地 ${Constants.LOCAL_AUTO_UI_DATA_VERSION}，注入不会生效")
-            return false
-        }
 
         val packageRuleClass = runCatching {
             XposedHelpers.findClass(Constants.CLASS_AUTO_UI_PACKAGE_RULE, systemServerClassLoader)
@@ -118,15 +127,22 @@ object AutoUiCloudInjector {
             return false
         }
 
+        // 读取合并底：云控文件「存在即全量生效、固件 autoui_list.xml 被忽略」
+        // （见 MiuiParsingAutoUI.loadPackage 两条路径互斥 return），而
+        // updateAutoUICloudConfigFile 是 new FileOutputStream 全新截断写入、内部不做任何合并。
+        // 因此必须先把云控文件里已有的条目读回来，再叠加模块条目，否则会把
+        // 以往云控写入的条整体覆盖丢失。
+        val base = readBaseEntries(cloudFile, packageRuleClass)
+
         // 内容与上次落盘一致就不再写文件。
         // 但版本号字段每次开机归零，所以仍要确保它是抬高过的。
-        val fingerprint = fingerprintOf(version)
+        val fingerprint = fingerprintOf(version, base)
         if (fingerprint == lastFingerprint) {
             raiseVersion(parsingClass, version, log = false)
             return false
         }
 
-        val map = HashMap<String, Any>()
+        val map = HashMap<String, Any>(base)
         rules.forEach { rule ->
             runCatching {
                 // 7 参：pkg, enable, activityRule, skippedActivityRule,
@@ -150,7 +166,7 @@ object AutoUiCloudInjector {
                 parsingClass, Constants.M_UPDATE_CLOUD_CONFIG_FILE,
                 Constants.CLOUD_AUTO_UI_FILE, map
             )
-            XLog.i("已落盘 ${Constants.CLOUD_AUTO_UI_FILE}，共 ${map.size} 条")
+            XLog.i("已落盘 ${Constants.CLOUD_AUTO_UI_FILE}，合并底 ${base.size} + 模块 ${rules.size} = ${map.size} 条")
         }.onFailure {
             XLog.e("落盘 autoui 云控文件失败", it)
             return false
@@ -161,9 +177,46 @@ object AutoUiCloudInjector {
         return true
     }
 
+    /**
+     * 读取合并底：把云控文件里已存在的扁平 `<package .../>` 条目重建为 PackageRule。
+     * 云控文件不存在/为空返回空表；解析失败返回空表并告警——autoui 没有「固件等价物」可回落
+     * （云控格式无法表达固件里的 <activity>/<view> 子树），故此处不中止注入，只记录。
+     */
+    private fun readBaseEntries(
+        cloudFile: java.io.File,
+        packageRuleClass: Class<*>
+    ): Map<String, Any> {
+        if (!cloudFile.canRead()) return emptyMap()
+        val raw = runCatching { cloudFile.readText() }.getOrDefault("")
+        val table = CloudXmlCodec.parse(raw)
+        if (table == null) {
+            XLog.e("${cloudFile.name} 解析失败（文件可能损坏），本轮以空底表注入")
+            return emptyMap()
+        }
+        if (table.isEmpty()) return emptyMap()
+        val result = HashMap<String, Any>(table.size)
+        table.forEach { (pkg, attrs) ->
+            runCatching {
+                result[pkg] = XposedHelpers.newInstance(
+                    packageRuleClass,
+                    pkg,
+                    attrs["enable"],
+                    attrs["activityRule"],
+                    attrs["skippedActivityRule"],
+                    attrs["versionCode"],
+                    attrs["optimizeWebView"],
+                    attrs["skippedAppConfigChange"]
+                )
+            }.onFailure { XLog.e("重建云控条目失败：$pkg", it) }
+        }
+        return result
+    }
+
     /** 规则内容指纹：只要参与落盘的字段没变，就认为不需要重写文件 */
-    private fun fingerprintOf(version: Long): String = buildString {
+    private fun fingerprintOf(version: Long, base: Map<String, Any>): String = buildString {
         append(version)
+        // base 参与指纹：云控文件被外部改写（条目增减）时应重写，不能沿用旧指纹跳过
+        base.keys.sorted().forEach { append('\n').append("b:").append(it) }
         RuleStore.autoUiRules()
             .sortedBy { it.packageName }
             .forEach { r ->

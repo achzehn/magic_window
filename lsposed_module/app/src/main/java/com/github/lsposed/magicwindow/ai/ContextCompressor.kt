@@ -11,6 +11,9 @@ import android.util.Log
  */
 object ContextCompressor {
 
+    /** 摘要失败降级时的占位文案（请求/界面/历史三处必须一致，由调用方引用本常量） */
+    const val FALLBACK_SUMMARY = "（摘要生成失败，最早的消息已直接丢弃）"
+
     /** 触发压缩的阈值（占 maxInputTokens 的比例） */
     private const val TRIGGER_RATIO = 0.85f
 
@@ -107,14 +110,21 @@ object ContextCompressor {
         }
 
         val toSummarize = body.subList(0, removed)
-        val summary = runCatching { summarize(toSummarize, complete) }.onFailure {
-            Log.w(TAG, "AI 摘要失败，降级为直接丢弃旧消息", it)
-        }.getOrNull()
+        // runCatching 会吞掉 CancellationException：用户在压缩期间点停止仍会执行降级删除，
+        // 且僵尸协程稍后可能覆盖新一轮请求的消息列表——取消必须向上传播
+        val summary = try {
+            summarize(toSummarize, complete)
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            Log.w(TAG, "AI 摘要失败，降级为直接丢弃旧消息", t)
+            null
+        }
 
         val newBody = mutableListOf<AiClient.ChatMessage>()
-        if (summary != null) {
-            newBody.add(AiClient.ChatMessage("user", "[前文摘要] $summary"))
-        }
+        // 摘要（或降级占位）无论成败都写入请求消息：否则本轮请求与下一轮（从 UI 重建）
+        // 的上下文不一致，降级占位也要让模型知道前文已被截断
+        newBody.add(AiClient.ChatMessage("user", "[前文摘要] ${summary ?: FALLBACK_SUMMARY}"))
         newBody.addAll(kept)
         val newMessages = system + newBody
         return Result(newMessages, summary, removed, before, estimateMessages(newMessages))

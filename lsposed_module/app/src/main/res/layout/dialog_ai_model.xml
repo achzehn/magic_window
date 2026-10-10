@@ -101,7 +101,7 @@
             android:layout_height="wrap_content"
             android:text="@string/ai_model_advanced"
             android:layout_marginBottom="8dp"
-            android:icon="@android:drawable/arrow_down_float" />
+            app:icon="@drawable/ic_chevron_down" />
 
         <LinearLayout
             android:id="@+id/layoutAdvanced"
@@ -127,7 +127,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:hint="输入 Token"
+                    android:hint="@string/ai_model_input_tokens"
                     android:layout_marginEnd="8dp"
                     style="@style/Widget.MagicWindow.TextInput.Outlined">
                     <com.google.android.material.textfield.TextInputEditText
@@ -142,7 +142,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:hint="输出 Token"
+                    android:hint="@string/ai_model_output_tokens"
                     style="@style/Widget.MagicWindow.TextInput.Outlined">
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etMaxOutputTokens"
@@ -179,7 +179,7 @@
             <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Temperature"
+                android:hint="@string/ai_model_temperature"
                 android:layout_marginBottom="4dp"
                 style="@style/Widget.MagicWindow.TextInput.Outlined">
                 <com.google.android.material.textfield.TextInputEditText
@@ -193,7 +193,7 @@
             <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Top P"
+                android:hint="@string/ai_model_top_p"
                 android:layout_marginBottom="4dp"
                 style="@style/Widget.MagicWindow.TextInput.Outlined">
                 <com.google.android.material.textfield.TextInputEditText
@@ -207,7 +207,7 @@
             <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Top K"
+                android:hint="@string/ai_model_top_k"
                 style="@style/Widget.MagicWindow.TextInput.Outlined">
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etTopK"

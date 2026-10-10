@@ -11,8 +11,8 @@ android {
         applicationId = "com.github.lsposed.magicwindow"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 2
-        versionName = "2.0.0"
+        versionCode = 20405
+        versionName = "2.4.5"
     }
 
     signingConfigs {

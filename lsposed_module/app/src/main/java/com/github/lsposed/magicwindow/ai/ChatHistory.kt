@@ -13,11 +13,13 @@ object ChatHistory {
     private const val PREFS = "ai_chat_history"
     private const val KEY_CONVERSATIONS = "conversations"
 
-    /** 附件元数据：图片只存本地文件路径（base64 太大不进 SharedPreferences） */
+    /** 附件元数据：图片只存本地文件路径（base64 太大不进 SharedPreferences）；文本附件存截断后的内容 */
     data class AttachmentMeta(
         val type: String,       // "image" | "text"
         val name: String,
-        val localPath: String? = null
+        val localPath: String? = null,
+        /** 文本附件内容（发送时已截断至 MAX_TEXT_CHARS）；图片为 null */
+        val content: String? = null
     )
 
     data class Message(
@@ -57,6 +59,7 @@ object ChatHistory {
                                         put("type", att.type)
                                         put("name", att.name)
                                         att.localPath?.let { put("localPath", it) }
+                                        att.content?.let { put("content", it) }
                                     })
                                 }
                             })
@@ -80,13 +83,14 @@ object ChatHistory {
                             atts.add(AttachmentMeta(
                                 type = a.optString("type", ""),
                                 name = a.optString("name", ""),
-                                localPath = a.optString("localPath", "").ifEmpty { null }
+                                localPath = a.optString("localPath", "").ifEmpty { null },
+                                content = a.optString("content", "").ifEmpty { null }
                             ))
                         }
                     }
                     msgs.add(Message(
-                        role = m.getString("role"),
-                        content = m.getString("content"),
+                        role = m.optString("role", "user"),
+                        content = m.optString("content", ""),
                         timestamp = m.optLong("timestamp", 0),
                         attachments = atts,
                         isSummary = m.optBoolean("isSummary", false)
@@ -108,13 +112,15 @@ object ChatHistory {
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** 获取所有对话（按最后修改时间倒序） */
+    /** 获取所有对话（按最后修改时间倒序）。单条损坏跳过，整体损坏按空历史处理，绝不抛异常 */
     fun getAll(context: Context): List<Conversation> {
         val json = prefs(context).getString(KEY_CONVERSATIONS, "[]") ?: "[]"
-        val arr = JSONArray(json)
-        return (0 until arr.length())
-            .map { Conversation.fromJson(arr.getJSONObject(it)) }
-            .sortedByDescending { it.lastModified }
+        return runCatching {
+            val arr = JSONArray(json)
+            (0 until arr.length()).mapNotNull { i ->
+                runCatching { Conversation.fromJson(arr.getJSONObject(i)) }.getOrNull()
+            }.sortedByDescending { it.lastModified }
+        }.getOrElse { emptyList() }
     }
 
     /** 保存所有对话 */

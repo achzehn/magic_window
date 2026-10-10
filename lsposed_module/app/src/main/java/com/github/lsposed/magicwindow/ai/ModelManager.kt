@@ -63,11 +63,13 @@ object ModelManager {
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** 获取所有模型 */
+    /** 获取所有模型。JSON 损坏按空列表处理，避免启动路径崩溃 */
     fun getAll(context: Context): List<ModelConfig> {
         val json = prefs(context).getString(KEY_MODELS, "[]") ?: "[]"
-        val arr = JSONArray(json)
-        return (0 until arr.length()).map { ModelConfig.fromJson(arr.getJSONObject(it)) }
+        return runCatching {
+            val arr = JSONArray(json)
+            (0 until arr.length()).mapNotNull { runCatching { ModelConfig.fromJson(arr.getJSONObject(it)) }.getOrNull() }
+        }.getOrElse { emptyList() }
     }
 
     /** 获取所有已启用的模型 */
@@ -111,6 +113,11 @@ object ModelManager {
         if (idx >= 0) {
             models[idx] = model
             saveAll(context, models)
+            // 停用的是当前模型：把 current 写回到首个启用模型，
+            // 否则 getCurrent 静默回落显示 B 而 current_id 仍指向 A，重新启用 A 又莫名切回
+            if (!model.enabled && prefs(context).getString(KEY_CURRENT_ID, null) == model.id) {
+                setCurrent(context, models.firstOrNull { it.enabled }?.id)
+            }
         }
     }
 

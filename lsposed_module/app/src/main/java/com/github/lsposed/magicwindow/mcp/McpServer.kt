@@ -2,8 +2,6 @@ package com.github.lsposed.magicwindow.mcp
 
 import android.content.Context
 import android.content.pm.PackageManager
-import android.os.Handler
-import android.os.Looper
 import com.github.lsposed.magicwindow.common.Constants
 import com.github.lsposed.magicwindow.common.model.AppRule
 import com.github.lsposed.magicwindow.data.ConfigRepository
@@ -11,9 +9,7 @@ import com.github.lsposed.magicwindow.data.RuleDiagnostics
 import com.github.lsposed.magicwindow.data.SystemRuleSource
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
@@ -53,8 +49,11 @@ object McpServer {
     private var serverSocket: ServerSocket? = null
     private var acceptThread: Thread? = null
 
+    /** 活跃客户端连接：stop() 时全部断开，否则 keep-alive 旧连接在服务「已停止」后仍可调用工具 */
+    private val clientSockets =
+        java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Socket, Boolean>())
+
     private lateinit var appContext: Context
-    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun isRunning(): Boolean = running.get()
 
@@ -122,6 +121,9 @@ object McpServer {
         running.set(false)
         runCatching { serverSocket?.close() }
         serverSocket = null
+        // 断开全部既有 keep-alive 连接，确保「停止」后旧连接不能再调用工具
+        clientSockets.forEach { s -> runCatching { s.close() } }
+        clientSockets.clear()
     }
 
     /** 本机访问地址（设备自身访问），例如 http://127.0.0.1:8765/mcp */
@@ -160,6 +162,7 @@ object McpServer {
     // ── 连接处理 ─────────────────────────────────────────────
 
     private fun serve(socket: Socket) {
+        clientSockets.add(socket)
         Thread({
             socket.use { s ->
                 runCatching {
@@ -167,19 +170,21 @@ object McpServer {
                     s.tcpNoDelay = true
                     // keep-alive 空闲 5 分钟后断开，防止连接线程堆积
                     s.soTimeout = 300_000
-                    val reader = BufferedReader(InputStreamReader(s.getInputStream()))
+                    val input = s.getInputStream()
                     val out = s.getOutputStream()
                     // 同一连接循环处理多个请求（HTTP/1.1 长连接），
                     // mcp-remote / Postman 等客户端复用连接时免去每请求重新握手
-                    while (true) {
-                        val first = reader.readLine() ?: break
+                    while (running.get()) {
+                        // header 逐字节读到空行（header 为 ASCII），body 再按 Content-Length
+                        // 的**字节数**精确读取——HTTP 的 Content-Length 语义是字节而非字符，
+                        // 用 BufferedReader 按字符读在请求体含中文等多字节 UTF-8 时会读不满而挂死
+                        val headerLines = readHeaderLines(input) ?: return@runCatching
+                        val first = headerLines.firstOrNull() ?: return@runCatching
                         val expected = token(appContext)
                         var contentLength = 0
                         var authorized = expected.isEmpty()
                         var keepAlive = first.contains("HTTP/1.1")
-                        while (true) {
-                            val line = reader.readLine() ?: return@runCatching
-                            if (line.isEmpty()) break
+                        for (line in headerLines.drop(1)) {
                             val lower = line.lowercase(Locale.US)
                             if (lower.startsWith("content-length:")) {
                                 contentLength = line.substringAfter(':').trim().toIntOrNull() ?: 0
@@ -196,30 +201,63 @@ object McpServer {
                                 authorized = line.substringAfter(':').trim() == "Bearer $expected"
                             }
                         }
-                        // 循环读满请求体：单次 read 可能因 TCP 分段读不满，
-                        // 残留字节会被误当下一个请求解析，导致长连接协议错位断连
-                        val buf = CharArray(contentLength)
-                        var off = 0
-                        while (off < contentLength) {
-                            val n = reader.read(buf, off, contentLength - off)
-                            if (n <= 0) return@runCatching
-                            off += n
-                        }
-                        val body = if (off <= 0) "" else String(buf, 0, off)
-                        if (!authorized) {
-                            write(out, 401, """{"error":"unauthorized"}""", false)
+                        if (contentLength < 0 || contentLength > 4_000_000) {
+                            write(out, 400, """{"error":"invalid content-length"}""", false)
                             break
                         }
+                        // 按字节精确读满请求体（TCP 分段时循环补读），再按 UTF-8 解码
+                        val bodyBytes = ByteArray(contentLength)
+                        var off = 0
+                        while (off < contentLength) {
+                            val n = input.read(bodyBytes, off, contentLength - off)
+                            if (n < 0) return@runCatching
+                            off += n
+                        }
+                        val body = String(bodyBytes, Charsets.UTF_8)
                         when {
+                            // CORS 预检不携带 Authorization，必须先于鉴权处理，
+                            // 否则启用令牌后浏览器类客户端（mcp-inspector 等）预检被 401 拦截
                             first.startsWith("OPTIONS") -> write(out, 204, "", keepAlive)
-                            first.startsWith("POST") -> write(out, 200, handleRpc(body), keepAlive)
+                            !authorized -> {
+                                write(out, 401, """{"error":"unauthorized"}""", false)
+                                break
+                            }
+                            first.startsWith("POST") -> {
+                                val resp = handleRpc(body)
+                                // JSON-RPC 通知（无 id）按规范不回响应体，HTTP 层回 202
+                                if (resp.isEmpty()) write(out, 202, "", keepAlive)
+                                else write(out, 200, resp, keepAlive)
+                            }
                             else -> write(out, 405, """{"error":"POST only"}""", false)
                         }
                         if (!keepAlive) break
                     }
                 }
             }
+            clientSockets.remove(socket)
         }, "MagicWindow-MCP-conn").apply { isDaemon = true }.start()
+    }
+
+    /**
+     * 逐字节读取请求行与全部 header 行，直到空行为止。
+     * @return 行列表（第一行为请求行）；流提前结束返回 null
+     */
+    private fun readHeaderLines(input: java.io.InputStream): List<String>? {
+        val lines = mutableListOf<String>()
+        val current = StringBuilder()
+        while (true) {
+            val b = input.read()
+            if (b < 0) return if (lines.isEmpty()) null else lines
+            when (b.toByte().toInt().toChar()) {
+                '\r' -> { /* 忽略 CR */ }
+                '\n' -> {
+                    if (current.isEmpty()) return lines
+                    lines.add(current.toString())
+                    current.setLength(0)
+                }
+                else -> current.append(b.toByte().toInt().toChar())
+            }
+        }
     }
 
     /** header + body 一次性写出（分两次 write 会触发 Nagle/延迟 ACK 互等，产生数百毫秒延迟） */
@@ -242,6 +280,8 @@ object McpServer {
         val req = runCatching { JSONObject(body) }.getOrElse {
             return rpcError(null, -32700, "Parse error").toString()
         }
+        // JSON-RPC 通知（无 id 字段）不得返回响应体，由调用方回 HTTP 202
+        if (!req.has("id")) return ""
         val id = req.opt("id")
         val method = req.optString("method")
         val params = req.optJSONObject("params") ?: JSONObject()
@@ -254,9 +294,6 @@ object McpServer {
                         .put("name", "magic-window")
                         .put("version", "1.0"))
             )
-
-            "notifications/initialized", "notifications/cancelled" ->
-                JSONObject().put("jsonrpc", "2.0").put("id", JSONObject.NULL)
 
             "ping" -> JSONObject().put("jsonrpc", "2.0").put("id", id)
                 .put("result", JSONObject())
@@ -327,7 +364,8 @@ object McpServer {
                     "fo_force_portrait_activity" to "固定横屏下仍竖屏显示的页面，格式「包名/类名」，仅 fixedOrientation",
                     "autoui_enable" to "是否启用界面适配优化，true/false，可叠加在任意模式上",
                     "autoui_activity_rule" to "界面适配页面规则，格式「页面全类名:模式码」，模式码 1=左侧 2=右侧 6=全屏，多页面用分号分隔",
-                    "autoui_skipped_activity_rule" to "跳过界面适配的页面（分号分隔）")))
+                    "autoui_skipped_activity_rule" to "跳过界面适配的页面（分号分隔）",
+                    "enabled" to "是否启用该规则，true/false；不传则保持现状（新建规则默认启用）")))
         ).put(toolDef(
             "delete_app_rule", "删除某个应用的模块规则，恢复系统默认行为。",
             strSchema(required = listOf("package_name" to "应用包名")))
@@ -374,27 +412,33 @@ object McpServer {
     private fun toolDef(name: String, desc: String, schema: JSONObject): JSONObject =
         JSONObject().put("name", name).put("description", desc).put("inputSchema", schema)
 
-    // ── 工具实现（统一切回主线程执行，避免与 UI 并发改规则） ──
+    // ── 工具实现（单线程后台执行，避免 get_crash_log 的 su 等待阻塞主线程触发 ANR） ──
+
+    private val toolExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "MagicWindow-MCP-tools").apply { isDaemon = true }
+    }
 
     private fun callTool(name: String, args: JSONObject): JSONObject {
         val latch = CountDownLatch(1)
         lateinit var result: JSONObject
-        mainHandler.post {
+        // 单线程串行执行：与 UI 并发改规则的风险由 ConfigRepository 的同步块承担，
+        // 串行化保证 MCP 侧工具之间不并发
+        toolExecutor.execute {
             try {
-                result = dispatchOnMain(name, args)
+                result = dispatchTool(name, args)
             } catch (t: Throwable) {
                 result = toolText("工具执行失败：${t.message ?: t.javaClass.simpleName}")
             } finally {
                 latch.countDown()
             }
         }
-        if (!latch.await(10, TimeUnit.SECONDS)) {
+        if (!latch.await(15, TimeUnit.SECONDS)) {
             return toolText("工具执行超时")
         }
         return result
     }
 
-    private fun dispatchOnMain(name: String, args: JSONObject): JSONObject = when (name) {
+    private fun dispatchTool(name: String, args: JSONObject): JSONObject = when (name) {
         "search_apps" -> searchApps(args.optString("keyword"), args.optInt("limit", 10))
         "get_app_activities" -> listActivities(args.optString("package_name"))
         "get_current_rules" -> listRules()
@@ -455,9 +499,20 @@ object McpServer {
         args.optString("fo_force_portrait_activity").takeIf { it.isNotEmpty() }?.let { base.put("foForcePortraitActivity", it) }
         args.optString("autoui_activity_rule").takeIf { it.isNotEmpty() }?.let { base.put("autoUiActivityRule", it) }
         args.optString("autoui_skipped_activity_rule").takeIf { it.isNotEmpty() }?.let { base.put("autoUiSkippedActivityRule", it) }
-        if (args.has("support_full_size")) base.put("supportFullSize", args.optBoolean("support_full_size", true))
-        if (args.has("is_show_divider")) base.put("isShowDivider", args.optBoolean("is_show_divider", true))
-        if (args.has("autoui_enable")) base.put("autoUiEnable", args.optBoolean("autoui_enable", true))
+        // 布尔参数：严格解析，非法值报错而非静默回退成 true（"0"/"yes" 等曾被覆盖为 true）
+        val boolParams = listOf(
+            "support_full_size" to "supportFullSize",
+            "is_show_divider" to "isShowDivider",
+            "autoui_enable" to "autoUiEnable",
+            "enabled" to "enabled"
+        )
+        for ((argKey, jsonKey) in boolParams) {
+            if (!args.has(argKey) || args.isNull(argKey)) continue
+            val raw = args.get(argKey)
+            val parsed = strictBool(raw)
+                ?: return toolText("参数 $argKey 需要 true/false 布尔值，收到：$raw")
+            base.put(jsonKey, parsed)
+        }
         args.optJSONObject("rule")?.let { up ->
             up.keys().forEachRemaining { key -> if (key != "packageName") base.put(key, up.get(key)) }
         }
@@ -465,6 +520,17 @@ object McpServer {
         ConfigRepository.saveRule(rule)
         return JSONObject().put("saved", true)
             .put("rule", ConfigRepository.rule(pkg)?.toJson() ?: rule.toJson())
+    }
+
+    /** 严格布尔：仅接受 JSON 布尔与 "true"/"false" 字符串，其余返回 null（非法值） */
+    private fun strictBool(v: Any?): Boolean? = when (v) {
+        is Boolean -> v
+        is String -> when (v.trim().lowercase(Locale.US)) {
+            "true" -> true
+            "false" -> false
+            else -> null
+        }
+        else -> null
     }
 
     private fun deleteRule(pkg: String): JSONObject {
@@ -476,6 +542,8 @@ object McpServer {
     private fun systemRule(pkg: String): JSONObject =
         JSONObject()
             .put("package_name", pkg)
+            // loaded=false 时下表为空只是「尚未加载」而非「系统无内置规则」，显式标注防止误判
+            .put("loaded", SystemRuleSource.loaded)
             .put("fixedDisabled", SystemRuleSource.isFixedDisabled(pkg))
             .put("embedding", JSONObject(SystemRuleSource.attrsOf(SystemRuleSource.Kind.EMBEDDING, pkg)))
             .put("fixedOrientation", JSONObject(SystemRuleSource.attrsOf(SystemRuleSource.Kind.FIXED, pkg)))

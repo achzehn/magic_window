@@ -109,7 +109,7 @@ object SystemRuleSource {
         } catch (t: Throwable) {
             messages += "读取系统规则出错：${t.message ?: t.javaClass.simpleName}"
         }
-        errorMessage = messages.firstOrNull()
+        errorMessage = messages.joinToString("；").ifEmpty { null }
         synchronized(loadLock) { loaded = true }
         mainHandler.post {
             pendingCallbacks.forEach { runCatching { it() } }
@@ -142,7 +142,8 @@ object SystemRuleSource {
             else -> local
         }
         if (picked == null) {
-            missing += localNames.first()
+            // 裸文件名作为错误消息毫无上下文，补全描述
+            missing += "未找到内置名单文件：${localNames.first()}"
             return emptyMap()
         }
         return picked.table

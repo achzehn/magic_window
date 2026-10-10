@@ -1,7 +1,7 @@
 # Magic Window Adapter — Code Wiki
 
 > 模块包名：`com.github.lsposed.magicwindow`
-> 版本：2.0.0（versionCode 2）
+> 版本：2.4.5（versionCode 20405）
 > 许可证：Apache License 2.0
 
 ---
@@ -933,6 +933,8 @@ AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug
 
 ### 代码简化批次（2026-10-08）— 死代码清理 + 单一路径收敛
 
+**版本：** v2.4.5（versionCode 20405，首次正式发布本批次改动）
+
 **删除死代码（全仓零消费者，均经全局搜索验证）：**
 
 | 删除项 | 位置 | 说明 |
@@ -965,3 +967,156 @@ AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug
 - `AppRule` 78 字段在声明 / `toJson` / `fromJson` 三处平行维护
 - `AppDetailActivity` 两个页面选择器（`showPagePicker` / `showPlaceholderPairPicker`）存在约 60 行可抽取的公共段
 - `SystemRuleSource.parseContent` 与 `CloudXmlCodec.parse` 为两套同构 XML 解析（app 侧额外解析 dataVersion）
+
+---
+
+### 功能缺陷修复批次（2026-10-09）— 全仓审查举证 + 修复
+
+四域并行审查（libhook+common / data+mcp / ai / ui）产出约 60 条带代码证据的候选，复核后按下述清单修复，全部通过 `assembleDebug assembleRelease`（含 lintVital）闸门。
+
+**MCP 协议（`McpServer.kt`）：**
+
+| 缺陷 | 修复 |
+|------|------|
+| 请求体按字符读、Content-Length 按字节——含中文的请求读不满而挂死至 300s 超时 | header 逐字节读到空行，body 按字节数精确读满再 UTF-8 解码；另加 4MB content-Length 上限 |
+| OPTIONS 预检在鉴权之后——启用令牌后浏览器类客户端（mcp-inspector）被 401 拦截 | OPTIONS 分支前移到鉴权之前 |
+| `stop()` 只关监听套接字——keep-alive 旧连接在「已停止」后仍可调用工具 | 维护活跃连接集合并逐一断开；连接循环检查 `running` |
+| JSON-RPC 通知（无 id）回 `id:null` 响应体 | 无 id 请求回空串 → HTTP 202 空体 |
+| 工具在主线程执行（get_crash_log 的 su 最长 10s → ANR）；latch 超时 10s | 迁移到专用后台单线程 executor 串行执行，latch 15s；`dispatchOnMain` 更名 `dispatchTool` |
+| 布尔参数 `optBoolean(key, true)` 把 `"0"`/`"yes"` 等静默置 true | `strictBool` 严格解析，非法值返回参数错误；两侧（MCP/AI）同修 |
+| MCP `set_app_rule` 无法重新启用停用的规则（AI 侧反而无条件强制启用） | 两侧统一新增可选 `enabled` 参数：仅显式传入时覆盖，新规则默认启用；AI 侧深拷贝后修改 |
+| `get_system_rules` 未标注加载状态，未加载时空表被误读为「系统无内置规则」 | 返回体新增 `loaded` 字段 |
+
+**诊断与导出（`RuleDiagnostics.kt` / `ConfigExporter.kt`）：**
+
+- `runSu` 先 `waitFor` 再读 stdout——日志超过 64KB 管道缓冲即挂死超时 → 改为 stdout/stderr 并发排空（与 `SystemRuleSource` 同款）
+- `get_crash_log` 按 threadtime 行头分组——每行都带时间戳导致事件被切碎 → 命令改 `logcat -v long`，头行正则匹配 `[ 日期…`；白名单同步更新
+- `flattenPkgClass` 对「包名/全类名」二次拼包名（`com.a/com.a.ui.Main` → `com.a.com.a.ui.Main`）→ 三分支还原，修 validate 误报与页面选择器勾选丢失
+- `checkPlainList` 同时按 `,`/`;` 拆分导致分号误用漏报 → 只按逗号拆 + 显式 warning；`splitRatio` 数值校验门控到 embedding 模式；diagnose 补 mode=off 提示
+- 导出 `openOutputStream` 返回 null 时仍报成功 → 改为返回 false
+
+**详情页状态（`AppDetailActivity.kt`）：**
+
+- 表单直改仓储共享 `AppRule` 实例——未保存的编辑立即泄漏到列表/MCP/导出并被其他保存连带持久化 → 进入页面深拷贝
+- `onSystemRulesReady` 用会话级 `userSaved` 判断——上次会话保存的规则被系统内置值覆盖 → 新增 `isNewRule` 守卫
+- 程序化 `modeGroup.check()` 复用用户监听器 → 导入值/恢复默认值被 `applyModeDefaults` 样例覆盖 → 新增 `suppressModeSideEffects`，恢复默认对 builtin 规则跳过样例套用
+- 页面选择器回显/写回丢后缀（`页面:模式码`、`左栏:右栏`、`包名/类名`）→ 多候选匹配 + 旧条目原样写回、仅新增项用默认格式
+- 导出用旧 `rule.mode` → 导出前同步 `pendingMode`；「恢复默认」迟到回调加 dirty/userSaved 快照守卫
+- AI 推荐 `fieldContext` 键不匹配（`relunchRule` 死分支、`sizeCompatRule` 大小写、缺 `embRelaunchRule`/`foRelaunchRule`/`foForcePortraitActivity`）→ 键与 txt() 实际 key 对齐
+- `disableCameraPreview` 无编辑入口（导入值不可见不可改）→ embedding 分区补开关
+
+**AI 对话（`AiChatActivity` / `ChatHistory` / `ContextCompressor` / `AiClient` / `ModelManager`）：**
+
+- 生成期间可切换/新建/清空会话（下标越界或跨会话污染）→ 统一生成中守卫并提示
+- 「清空历史」不重置当前会话 → 下一条消息复活已删对话与图片路径；「清空对话」不清会话引用 → 同类复活 → 均重置 `currentConversation`
+- 压缩按条数双删历史，失败/停止消息只在 UI 侧 → 条数不齐时错删较新的历史消息 → `applyCompression` 改为按 UI 列表整体重建历史
+- `ContextCompressor` 的 `runCatching` 吞 `CancellationException` → 压缩期间停止仍执行删除 → CE 重抛 + 压缩后 `ensureActive()`；降级摘要占位三处（请求/UI/历史）统一为 `FALLBACK_SUMMARY` 常量
+- 重试取「整个列表最后一条 user」→ 改取错误消息之前的提问；`finally` 补 `updateToolStatus(null)`（停止/异常后状态栏残留）
+- 模型切换 `toolbar.menu.clear()` 把「新对话/历史/清空」三项清掉 → 重灌功能菜单，菜单点击统一走 `onOptionsItemSelected`（模型切换同时刷新底部按钮）
+- `ChatHistory`/`ModelManager` JSON 零容错解析 → 整体损坏按空处理、单条损坏跳过、`optString` 兜底
+- 文本附件内容不持久化（重启后模型看不到文件内容）→ `AttachmentMeta` 增加 `content` 持久化/恢复；附件读取移 IO 线程并按 60k 字符截断（原主线程 `readText` 大文件会卡死/OOM）
+- `rehydrateImages` 在 IO 线程遍历主线程可变列表、按下标回写 → 主线程取快照 + 写回前引用校验
+- 首条消息失败留下零消息幽灵会话 → 会话延迟到首次成功保存时创建
+- tool name 追加拼接（网关重复携带全名时拼成 `search_appssearch_apps`）→ 首段优先；非 SSE 响应丢弃 `tool_calls` → 补组装
+
+**工具执行器与数据层（`AiToolExecutor` / `ConfigRepository` / `AppAdapter` / `AppListActivity`）：**
+
+- 提示词/工具结果为 camelCase、schema 为 snake_case → AI 传 camelCase 被静默丢弃但返回 success → `execute` 入口键名归一化
+- `ConfigRepository` 裸 `LinkedHashMap` 被 AI(IO)/MCP(后台)/UI 三线程并发读写（CME 风险）→ 全部结构性访问加锁、`allRules()` 返回快照；`commit()` 失败不再发热更新广播
+- `AppAdapter` 图标线程池 core 线程不超时 → 经匿名队列永久持有 Activity（每次进列表泄漏）→ `allowCoreThreadTimeOut(30s)`；徽标缓存不再缓存「规则表未加载」的 null
+- `AppListActivity` 网格列数只在 onCreate 计算 → 折叠/分屏跨 sw 阈值不重算 → `onConfigurationChanged` 重算
+
+**libhook（`RuleStore` / `RuleCodec` / `CloudXmlCodec` / `EmbeddedFixedCloudInjector` / `AutoUiCloudInjector` / `ConfigSyncReceiver`）：**
+
+- `RuleCodec.decodeRules` 吞异常返回空/半截表 → 配置损坏时把「读取失败」伪装成「配置被清空」并覆盖 hook 侧正常快照 → 解析失败抛出，`RuleStore.loadNow` 保留旧快照并打错误日志，App 侧 init 兜底空表
+- `CloudXmlCodec.parse` 吞异常 → 云控文件损坏时回落本地名单再写回，会丢云控里的系统条目 → 解析失败返回 null，`readBaseTable` 中止本轮注入
+- `RuleStore.notifyFromApp` 在 system_server 主线程做 prefs IO + 全量注入 → 迁移到专用 HandlerThread；`loadNow` 加锁
+- `ConfigSyncReceiver` 60s 后放弃注册（与「直到注册成功」注释不符，热更新永久失效）→ 持续重试直到成功
+- `injectAsync` 的 check-then-act 竞态与触发丢失 → `injectLock` + `injectPending` 补跑；`injectNow` 加 `@Synchronized`
+- 规则改为「不处理(OFF)」后 `embedded_setting` 残留旧模式值、应用继续按旧模式跑 → `applyAppModes` 对 OFF 翻回 0
+- autoui 规则全部关闭后旧云控文件不清理（同开机周期内禁用无效）→ 本开机注入过时删除云控文件并热重载；删除恒假的版本门槛死代码（`version <= LOCAL` 永不成立）
+- `embeddingAttrsOf` 的 splitRatio 无数值过滤（非数字直接进系统文件）→ 与 scaleMode/adaptCutout 同款过滤
+- `AppRule.fromJson` 三个比例档可同时为 true → 按 applyAppModes 同一优先级（4:3>16:9>全屏）归一
+- `AutoUiCloudInjector` 直接全量覆盖 autoui 云控文件，`updateAutoUICloudConfigFile` 内部无合并（反编译证实为 `new FileOutputStream` 截断写入）→ 注入前读回云控文件已有条目、重建 `PackageRule` 作合并底，再叠加模块条目；base 键参与指纹，云控被外部改写时不再被跳过
+
+**真机取证（2026-10-09，实体机 `93fb88b`，adb + MT MCP 只读）：**
+
+- fixed 侧确认为**合并写回**：`/data/system/cloudFeature_fixed_orientation_list.xml` 保留 31 条带 `source` 字段的系统条目，模块的 `tv.danmaku.bili`、`com.xiaomi.scanner` 追加在尾部且无 `source`——`mergeWith` 生效
+- autoui 侧确认为**未合并的全量覆盖**：`/data/system/cloudFeature_autoui_list.xml` 实测仅 179B / 1 条；固件 `/product/etc/autoui_list.xml` 为 5070B、根标签 `packageRules`、含 bili/知乎/快手多条带 `<activity>/<view>` 子树的规则，均未出现在云控文件中
+- `MiuiParsingAutoUI.loadPackage`（反编译 `/system_ext/framework/miui-services.autoui.jar`）两条路径**互斥 return**：`mLastCloudConfigVersion > 0 && >= mLocalDataVersion` 时只读云控且直接返回，固件被整体跳过；云控路径 `parsePackageXml` 只解析 6 个平铺属性，**无法表达固件那种 `<activity>/<view>` 子树**（该能力在 `PackageRule2`/`rule2` 段），故固件条目在云控生效期间不可恢复
+- `/data/system/` 无 `cloudFeature_embedded_rules_list.xml`（当前无 embedding 规则）；反射目标 `mEmbeddedRule`/`mFixOriController`/`createSetting`/`onAppUiModeChanged`/`updatePackageConfigFromCloud`/`updateFixedOrientationFromCloud`/`isProjection`/`mIsProjection` 在真机 jar 中全部存在
+- 运行时日志通道：`XLog` 走 `XposedBridge.log`（LSPosed 通道），`logcat` 抓不到；`/data/adb/lspd/log/` 无相关记录，无法用日志验证运行时行为
+
+**行为变化：** 布尔参数非法值由「静默置 true」改为报错；AI `set_app_rule` 不再强制启用已有规则；MCP 通知改回 202；OFF 模式会显式翻转系统 mode=0；其余为错误路径修复，正常路径行为不变。
+
+**验证：** `gradlew assembleDebug assembleRelease` BUILD SUCCESSFUL（含 lintVitalRelease）；改动面 21 文件 +653/-257；被改名/删除符号全仓无残留引用。运行时行为（MCP 抓包、真机注入、热更新链路）需真机回归——见下方未修复项。
+
+**未修复（留档，需真机验证或产品决策）：**
+
+- 删除/停用（enabled=false）规则的云控条目清理与 mode 复位：fixed 侧已证伪（合并写回保留带 `source` 的系统条目，模块条目可经 `removals` 精确移除）；「恢复系统原始值」语义与 autoui 侧条目清除仍需产品决策（OFF→0 已修，mode=0 压制效果待真机确认）
+- ~~`AutoUiCloudInjector` 全量覆盖~~ → **已验证并修复**：`updateAutoUICloudConfigFile` 为截断写入、内部无合并（反编译实证），已补 base 合并（读回云控已有条目重建 `PackageRule` 作底）。**遗留**：固件 `/product/etc/autoui_list.xml` 里带 `<activity>/<view>` 子树的规则在云控生效期间仍不可恢复——云控扁平属性格式本就无法表达该结构（系统自身云控推送同理），非模块可修复项
+- ~~指纹只覆盖模块增量~~ → **已修复**：base 键纳入指纹，云控被外部改写时模块重写而非跳过
+- `SystemRuleSource` 加载失败（首启拒绝 su）后本进程内不重试——需要 UI 重试入口的产品决策
+- 详情页/AI 对话无 `onSaveInstanceState`，manifest 未含 `uiMode`——进程回收或夜间模式切换丢草稿（涉及全部 Activity 的状态保存设计）
+- 请求体恒发 `top_k`（严格校验的官方 OpenAI 端点可能 400）——目标端点兼容策略需决策
+- AI 侧与 MCP 侧工具输出结构差异、`AppRule` 三处平行维护、选择器公共段（沿袭上一批遗留）
+- ~~`ActivityLabelCache`/`AiSuggestCache` 无淘汰机制（慢性增长）~~ → **已修复**：三者统一继承 `PrefixedLruCache`，2000/3000/2000 条上限 + 时间戳近似 LRU 淘汰（见下方「LLM token 优化」）
+- 聊天缩略图 bind 同步解码（性能而非功能）
+
+---
+
+## LLM token 优化与 UI 美化（2026-10-09）
+
+**改动动机：** AI 参与的功能存在两处结构性 token 浪费——① `showPlaceholderPairPicker`（占位页配对）的角色判定**每次打开都全量重算**，结果只存活于对话框生命周期，关闭即丢；② 三个 AI 缓存无容量上限且各写一份前缀扫描。同时 UI 层存在系统图标混用、硬编码文案等问题。
+
+**数据层：缓存复用与淘汰**
+
+- **新增 `data/PrefixedLruCache.kt`**：抽象基类，收敛「包名前缀 + 条目」结构的 SharedPreferences 缓存。key = `包名|维度|名称`，value 为短字符串；`ts:` 前缀记录访问时间。
+  - 淘汰：写入后条目数超 `maxEntries` 时，按访问时间从旧到新删除直到回落上限。
+  - 读取：整批刷新一次访问时间（O(n) 而非每 key 一次写入）。
+- **三类缓存统一为其子类**（对外 API 仅 `putAll` → `putForPackage` 改名，避免与基类同名遮蔽）：
+  | 类 | prefs | 上限 | 维度 |
+  |---|---|---|---|
+  | `ActivityLabelCache` | `activity_label_cache` | 2000 | 包名 |
+  | `AiSuggestCache` | `ai_suggest_cache` | 3000 | 包名 + fieldContext |
+  | **`PageRoleCache`（新增）** | `page_role_cache` | 2000 | 包名 + `placeholderRole` |
+- **新增 `data/PageRoleCache.kt`**：持久化 AI 对 Activity 的角色判定（主页面/占位页面/其他）。配对选择器打开时预加载 → 仅对 `roleMap[name].isNullOrEmpty()` 的页面发起增量请求 → 全部命中时直接提示「已从缓存加载 N 个页面角色」并跳过请求 → 请求结束落盘。**同一应用第二次打开该选择器为 0 次 LLM 请求。**
+
+**提示词精简（`ai/AiSystemPrompt.kt`）**
+
+`SYSTEM_PROMPT` 整段压缩约 30%（164 → 113 行，12 → 10 章节）：删除「效果：/适合：」冗长描述、合并重复约束、`场景速查` 由多行小标题压成单行列表、`排错速查` 去引号、`安全规则` 5 条合 3 条。系统提示词每轮固定计入 token 成本，此压缩直接降低每轮基线开销。
+
+**配对选择器增量改造（`ui/AppDetailActivity.kt`）**
+
+- 「🤖 AI 推荐配对」由 `names = items.map { it.name }`（全量）改为 `items.filter { roleMap[it.name].isNullOrEmpty() }`（增量）。
+- 新增类级方法 `buildPairRoleMessages(pkg, batch)` 承载角色标注 prompt（原内联 15 行）。
+- 新增两个 `showPlaceholderPairPicker` 内局部函数（`PairItem` 为函数内 data class，helper 必须同作用域）：`parsePairRoleReply(reply)` 解析并回填 `roleMap`/`zhDescMap`；`applyPairSelection(): Pair<String?, String?>` 汇总角色结果写回两段选择（缓存命中与增量请求两路共用）。
+
+**UI 美化（仅复用 `themes.xml` 既有样式 + `colors.xml` 既有语义色，零新增样式）**
+
+- `ai/AiChatActivity.kt` + `item_ai_message.xml`：工具状态改用外层容器（品牌色 2dp 竖线 + `tvToolCall`）；失败消息气泡改用 `conflict_error` 红色描边，与正常回复一眼可分；加载态改「进度圈 + `bg_chip` 胶囊」。
+- `activity_ai_chat.xml`：输入区调整为「附件 / 输入框 / 发送 FAB」主行聚焦，`btnModelSwitch` 下沉为独立一行（高度 32→28dp，图标 `ic_chevron_down` → `ic_tune`）；`tvToolStatus` 改居中 `wrap_content`。
+- `ui/MainActivity.kt`：`showModelConfigDialog` 高级折叠改为箭头 `rotation` 动画（-90° ↔ 0°，150ms）；`showModelManagerDialog` 行高 56→62dp、当前模型高亮（`card_bg_high` + `brand_primary` 1dp 描边）、停用模型 `alpha=0.55f`、「当前」标记改胶囊（`ok_green` / `ok_green_bg`）、图标换自有 vector 40→38dp、删除确认文案改字符串资源。
+- **新增 vector**：`ic_edit.xml`、`ic_delete.xml`（替换 `android.R.drawable.ic_menu_edit`/`ic_menu_delete`）。
+- **新增字符串**（`strings.xml`）：`ai_model_delete`、`ai_model_delete_confirm`、`ai_model_input_tokens`、`ai_model_output_tokens`、`ai_model_temperature`、`ai_model_top_p`、`ai_model_top_k`。
+
+**变更文件：**
+
+| 文件 | 变更 |
+|------|------|
+| `app/.../data/PrefixedLruCache.kt` | **新建**：前缀缓存基类 + 近似 LRU 淘汰 |
+| `app/.../data/PageRoleCache.kt` | **新建**：页面角色缓存 |
+| `app/.../data/ActivityLabelCache.kt` | 改为基类子类，补上限与淘汰 |
+| `app/.../data/AiSuggestCache.kt` | 改为基类子类，补上限与淘汰 |
+| `app/.../ai/AiSystemPrompt.kt` | `SYSTEM_PROMPT` 压缩约 30% |
+| `app/.../ui/AppDetailActivity.kt` | 配对选择器增量请求 + `buildPairRoleMessages` + 2 局部 helper + 缓存落盘 |
+| `app/.../ui/MainActivity.kt` | 模型管理/配置对话框美化 |
+| `app/.../ai/AiChatActivity.kt` | 失败气泡描边 + 工具状态容器 + `ContextCompat` 导入 |
+| `res/layout/item_ai_message.xml`、`activity_ai_chat.xml`、`dialog_ai_model.xml` | 美化 |
+| `res/drawable/ic_edit.xml`、`ic_delete.xml`、`res/values/strings.xml` | 新增 |
+
+**行为变化：** 无功能语义变化，仅缓存命中时不再发起等价 LLM 请求、UI 呈现调整。
+
+**验证：** `gradlew assembleDebug assembleRelease` BUILD SUCCESSFUL（含 `lintVitalAnalyzeRelease`）。首次构建暴露 8 处编译错误并已修复：① 三个缓存子类在构造参数位置前向引用 `MAX_ENTRIES` → 常量提为文件级 `private const val`；② 子类 `putAll`/原名与基类同名遮蔽 → 改 `putForPackage`（6 处调用点同步）；③ `AiChatActivity` 缺 `androidx.core.content.ContextCompat` 导入。
+
+**遗留：** 缓存无失效策略（应用更新后 Activity 集合变化时旧条目仍在，直到被 LRU 淘汰）；聊天缩略图 bind 同步解码（性能项，未处理）。
