@@ -145,6 +145,8 @@ class AppListActivity : AppCompatActivity() {
                 all = list
                 loading = false
                 binding.progress.visibility = View.GONE
+                // 首次加载完成播放一次列表错峰入场
+                Motion.playListEnterAnimation(binding.recycler)
                 apply()
             }
         }.start()

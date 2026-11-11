@@ -1,25 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- ===== HyperOS 风格品牌色（暗色） ===== -->
-    <color name="brand_primary">#9FBDFF</color>
+    <!-- ===== 品牌色（暗色） ===== -->
+    <color name="brand_primary">#9DBBFF</color>
     <color name="brand_on_primary">#0B2E6E</color>
-    <color name="brand_primary_container">#27447E</color>
-    <color name="brand_on_primary_container">#DCE6FF</color>
+    <color name="brand_primary_container">#22417A</color>
+    <color name="brand_on_primary_container">#DCE7FF</color>
 
-    <color name="brand_secondary">#BEC8DC</color>
-    <color name="brand_on_secondary">#283241</color>
-    <color name="brand_secondary_container">#3A4456</color>
-    <color name="brand_on_secondary_container">#DBE2F0</color>
+    <color name="brand_secondary">#5FD3C4</color>
+    <color name="brand_on_secondary">#063A33</color>
+    <color name="brand_secondary_container">#1B4A43</color>
+    <color name="brand_on_secondary_container">#CFF5EE</color>
 
-    <!-- 页面 / 卡片 -->
-    <color name="app_bg">#0B0E12</color>
-    <color name="card_bg">#171B21</color>
-    <color name="card_bg_high">#222831</color>
-    <color name="divider">#282E37</color>
+    <!-- 页面 / 卡片 / 描边 -->
+    <color name="app_bg">#0B0F15</color>
+    <color name="card_bg">#151B23</color>
+    <color name="card_bg_high">#1E2732</color>
+    <color name="surface_soft">#1A222C</color>
+    <color name="divider">#27313D</color>
+    <color name="stroke">#2A3441</color>
+    <color name="ripple">#33FFFFFF</color>
+    <color name="text_input_stroke">#3A4656</color>
+
+    <!-- 首页状态卡渐变 -->
+    <color name="hero_start">#17233A</color>
+    <color name="hero_end">#121A26</color>
+    <color name="hero_stroke">#2B3A52</color>
 
     <!-- 文字 -->
-    <color name="text_primary">#E8EBEF</color>
-    <color name="text_secondary">#A4ABB6</color>
+    <color name="text_primary">#E9EEF5</color>
+    <color name="text_secondary">#9DA9B8</color>
+    <color name="text_tertiary">#7C8898</color>
 
     <!-- ===== 功能色 ===== -->
     <color name="conflict_error">#FFB4AB</color>
@@ -37,8 +47,6 @@
     <!-- ===== 彩色图标容器（暗色） ===== -->
     <color name="container_blue">#2A3A5C</color>
     <color name="on_container_blue">#B8CCFF</color>
-    <color name="container_green">#1F3D2D</color>
-    <color name="on_container_green">#9BE0B4</color>
     <color name="container_purple">#332A52</color>
     <color name="on_container_purple">#CDBBFF</color>
     <color name="container_amber">#4A3017</color>

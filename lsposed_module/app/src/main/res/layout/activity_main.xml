@@ -15,24 +15,13 @@
         app:liftOnScrollColor="@color/app_bg"
         app:statusBarForeground="@android:color/transparent">
 
-        <com.google.android.material.appbar.CollapsingToolbarLayout
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="?attr/collapsingToolbarLayoutLargeSize"
-            style="?attr/collapsingToolbarLayoutLargeStyle"
-            app:expandedTitleTextAppearance="@style/TextAppearance.MagicWindow.LargeTitle"
-            app:collapsedTitleTextAppearance="@style/Text.MagicWindow.CardTitle"
-            app:expandedTitleMarginStart="@dimen/page_padding"
-            app:expandedTitleMarginEnd="@dimen/page_padding"
-            app:contentScrim="@color/app_bg"
-            app:layout_scrollFlags="scroll|exitUntilCollapsed|snap">
-
-            <com.google.android.material.appbar.MaterialToolbar
-                android:id="@+id/toolbar"
-                android:layout_width="match_parent"
-                android:layout_height="?attr/actionBarSize"
-                app:title="@string/app_name"
-                app:layout_collapseMode="pin" />
-        </com.google.android.material.appbar.CollapsingToolbarLayout>
+            android:layout_height="?attr/actionBarSize"
+            android:background="@android:color/transparent"
+            app:title="@string/app_name"
+            app:titleTextAppearance="@style/Text.MagicWindow.CardTitle" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.core.widget.NestedScrollView
@@ -43,40 +32,44 @@
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <LinearLayout
+            android:id="@+id/contentRoot"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingHorizontal="@dimen/page_padding"
-            android:paddingTop="4dp">
+            android:paddingTop="@dimen/space_2">
 
-            <!-- 激活状态 -->
+            <!-- 运行状态 -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardStatus"
-                style="@style/Widget.MagicWindow.Card"
+                style="@style/Widget.MagicWindow.Card.Hero"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content">
+                android:layout_height="wrap_content"
+                app:contentPadding="0dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:background="@drawable/bg_hero"
                     android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                    android:orientation="horizontal"
+                    android:padding="@dimen/card_padding">
 
                     <ImageView
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
                         android:background="@drawable/bg_icon_container"
-                        android:backgroundTint="@color/container_green"
-                        android:src="@drawable/ic_shield_check"
-                        android:scaleType="centerInside"
-                        android:padding="11dp"
+                        android:backgroundTint="@color/container_blue"
                         android:contentDescription="@null"
-                        app:tint="@color/on_container_green" />
+                        android:padding="13dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_shield_check"
+                        app:tint="@color/on_container_blue" />
 
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="14dp"
+                        android:layout_marginStart="@dimen/space_4"
                         android:layout_weight="1"
                         android:orientation="vertical">
 
@@ -84,75 +77,102 @@
                             android:id="@+id/tvStatus"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:textAppearance="@style/Text.MagicWindow.CardTitle" />
+                            android:textSize="19sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/text_primary" />
 
                         <TextView
                             android:id="@+id/tvStatusDesc"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="3dp"
+                            android:layout_marginTop="@dimen/space_1"
+                            android:lineSpacingMultiplier="1.2"
                             style="@style/Text.MagicWindow.Desc" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 应用配置入口 -->
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/cardApps"
-                style="@style/Widget.MagicWindow.Card"
+            <!-- 应用设置 -->
+            <TextView
+                style="@style/Text.MagicWindow.Section"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/card_gap"
-                android:clickable="true"
-                android:focusable="true">
+                android:layout_marginStart="@dimen/space_1"
+                android:layout_marginTop="@dimen/space_6"
+                android:layout_marginBottom="@dimen/space_2"
+                android:text="@string/section_apps" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardApps"
+                style="@style/Widget.MagicWindow.Card.Clickable"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                    android:gravity="center_vertical"
+                    android:minHeight="@dimen/row_height"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:background="@drawable/bg_icon_container"
+                        android:backgroundTint="@color/container_blue"
+                        android:contentDescription="@null"
+                        android:padding="11dp"
+                        android:scaleType="centerInside"
+                        android:src="@drawable/ic_apps"
+                        app:tint="@color/on_container_blue" />
 
                     <LinearLayout
-                        android:layout_width="match_parent"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal">
-
-                        <ImageView
-                            android:layout_width="44dp"
-                            android:layout_height="44dp"
-                            android:background="@drawable/bg_icon_container"
-                            android:backgroundTint="@color/container_blue"
-                            android:src="@drawable/ic_apps"
-                            android:scaleType="centerInside"
-                            android:padding="11dp"
-                            android:contentDescription="@null"
-                            app:tint="@color/on_container_blue" />
+                        android:layout_marginStart="@dimen/space_4"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
 
                         <TextView
-                            android:layout_width="0dp"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="14dp"
-                            android:layout_weight="1"
                             android:text="@string/action_app_list"
                             android:textAppearance="@style/Text.MagicWindow.CardTitle" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_1"
+                            android:maxLines="2"
+                            android:ellipsize="end"
+                            android:text="@string/action_app_list_desc"
+                            style="@style/Text.MagicWindow.Desc" />
                     </LinearLayout>
 
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:text="@string/action_app_list_desc"
-                        style="@style/Text.MagicWindow.Desc" />
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginStart="@dimen/space_2"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_chevron_right" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- AI 模型管理 -->
+            <!-- AI 助手 -->
+            <TextView
+                style="@style/Text.MagicWindow.Section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/space_1"
+                android:layout_marginTop="@dimen/space_6"
+                android:layout_marginBottom="@dimen/space_2"
+                android:text="@string/ai_entry_title" />
+
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardAi"
                 style="@style/Widget.MagicWindow.Card"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/card_gap">
+                android:layout_height="wrap_content">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -170,16 +190,16 @@
                             android:layout_height="44dp"
                             android:background="@drawable/bg_icon_container"
                             android:backgroundTint="@color/container_purple"
-                            android:src="@drawable/ic_sparkle"
-                            android:scaleType="centerInside"
-                            android:padding="11dp"
                             android:contentDescription="@null"
+                            android:padding="11dp"
+                            android:scaleType="centerInside"
+                            android:src="@drawable/ic_sparkle"
                             app:tint="@color/on_container_purple" />
 
                         <LinearLayout
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="14dp"
+                            android:layout_marginStart="@dimen/space_4"
                             android:layout_weight="1"
                             android:orientation="vertical">
 
@@ -192,75 +212,81 @@
                             <TextView
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="3dp"
+                                android:layout_marginTop="@dimen/space_1"
+                                android:maxLines="2"
+                                android:ellipsize="end"
                                 android:text="@string/ai_model_management_desc"
                                 style="@style/Text.MagicWindow.Desc" />
                         </LinearLayout>
                     </LinearLayout>
 
-                    <!-- 当前模型显示 -->
+                    <!-- 当前模型 -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
+                        android:layout_marginTop="@dimen/space_3"
+                        android:background="@drawable/bg_soft_block"
                         android:gravity="center_vertical"
-                        android:layout_marginTop="14dp"
-                        android:paddingVertical="8dp">
+                        android:minHeight="@dimen/min_touch"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="@dimen/space_3"
+                        android:paddingVertical="@dimen/space_2">
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:layout_marginEnd="@dimen/space_2"
                             android:text="@string/ai_current_model"
-                            android:textSize="13sp"
-                            android:textColor="?android:attr/textColorSecondary"
-                            android:layout_marginEnd="8dp" />
+                            style="@style/Text.MagicWindow.Caption" />
 
                         <TextView
                             android:id="@+id/tvAiModelName"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:textSize="14sp"
-                            android:textStyle="bold"
-                            android:textColor="?attr/colorPrimary"
+                            android:ellipsize="end"
                             android:singleLine="true"
-                            android:ellipsize="end" />
+                            android:textColor="@color/text_primary"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
 
                         <TextView
                             android:id="@+id/tvAiModelStatus"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:textSize="12sp"
+                            android:layout_marginStart="@dimen/space_2"
                             android:background="@drawable/bg_pill"
                             android:paddingHorizontal="10dp"
-                            android:paddingVertical="3dp" />
+                            android:paddingVertical="3dp"
+                            android:textSize="12sp" />
                     </LinearLayout>
 
-                    <View
-                        android:layout_width="match_parent"
-                        android:layout_height="1dp"
-                        android:background="@color/divider" />
-
-                    <!-- 模型管理入口 -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnAiModels"
                         style="@style/Widget.MagicWindow.Button.Tonal"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
+                        android:layout_marginTop="@dimen/space_3"
                         android:text="@string/ai_manage_models"
-                        android:gravity="center"
                         app:icon="@drawable/ic_tune" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
             <!-- AI 调试服务（MCP） -->
+            <TextView
+                style="@style/Text.MagicWindow.Section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/space_1"
+                android:layout_marginTop="@dimen/space_6"
+                android:layout_marginBottom="@dimen/space_2"
+                android:text="@string/mcp_title" />
+
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardMcp"
                 style="@style/Widget.MagicWindow.Card"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/card_gap">
+                android:layout_height="wrap_content">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -274,120 +300,172 @@
                         android:orientation="horizontal">
 
                         <ImageView
-                            android:layout_width="44dp"
-                            android:layout_height="44dp"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
                             android:background="@drawable/bg_icon_container"
                             android:backgroundTint="@color/container_amber"
-                            android:src="@drawable/ic_bolt"
-                            android:scaleType="centerInside"
-                            android:padding="11dp"
                             android:contentDescription="@null"
+                            android:padding="10dp"
+                            android:scaleType="centerInside"
+                            android:src="@drawable/ic_bolt"
                             app:tint="@color/on_container_amber" />
 
-                        <TextView
+                        <LinearLayout
                             android:layout_width="0dp"
-                            android:layout_weight="1"
                             android:layout_height="wrap_content"
-                            android:layout_marginStart="14dp"
-                            android:text="@string/mcp_title"
-                            android:textAppearance="@style/Text.MagicWindow.CardTitle" />
+                            android:layout_marginStart="@dimen/space_3"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/mcp_state_title"
+                                android:textAppearance="@style/Text.MagicWindow.CardTitle" />
+
+                            <TextView
+                                android:id="@+id/tvMcpState"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:textSize="12sp"
+                                android:textColor="@color/text_tertiary" />
+                        </LinearLayout>
 
                         <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/swMcp"
                             android:layout_width="wrap_content"
-                            android:layout_height="wrap_content" />
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="@dimen/space_2" />
                     </LinearLayout>
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
+                        android:layout_marginTop="@dimen/space_3"
                         android:text="@string/mcp_desc"
                         style="@style/Text.MagicWindow.Desc" />
 
                     <TextView
-                        android:id="@+id/tvMcpState"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        style="@style/Text.MagicWindow.Desc" />
-
-                    <!-- 后台保活提示 -->
-                    <TextView
                         android:id="@+id/tvMcpWarn"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
+                        android:layout_marginTop="@dimen/space_2"
                         android:text="@string/mcp_warn"
                         style="@style/Text.MagicWindow.Desc" />
 
-                    <!-- 本机地址（点击复制） -->
+                    <!-- 本机地址 -->
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="@dimen/space_4"
                         android:text="@string/mcp_label_loopback"
-                        android:textAppearance="?attr/textAppearanceTitleSmall" />
+                        style="@style/Text.MagicWindow.Caption" />
 
                     <TextView
                         android:id="@+id/tvMcpLoopback"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        style="@style/Text.MagicWindow.Desc" />
+                        android:layout_marginTop="@dimen/space_1"
+                        android:background="@drawable/bg_soft_block"
+                        android:gravity="center_vertical"
+                        android:minHeight="@dimen/min_touch"
+                        android:paddingHorizontal="@dimen/space_3"
+                        android:paddingVertical="@dimen/space_2"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
 
-                    <!-- 局域网地址（点击复制） -->
+                    <!-- 局域网地址 -->
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="@dimen/space_3"
                         android:text="@string/mcp_label_lan"
-                        android:textAppearance="?attr/textAppearanceTitleSmall" />
+                        style="@style/Text.MagicWindow.Caption" />
 
                     <TextView
                         android:id="@+id/tvMcpLan"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        style="@style/Text.MagicWindow.Desc" />
+                        android:layout_marginTop="@dimen/space_1"
+                        android:background="@drawable/bg_soft_block"
+                        android:gravity="center_vertical"
+                        android:minHeight="@dimen/min_touch"
+                        android:paddingHorizontal="@dimen/space_3"
+                        android:paddingVertical="@dimen/space_2"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
 
-                    <!-- 端口（点击修改） -->
-                    <TextView
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:text="@string/mcp_label_port"
-                        android:textAppearance="?attr/textAppearanceTitleSmall" />
+                        android:layout_marginTop="@dimen/space_3"
+                        android:baselineAligned="false"
+                        android:orientation="horizontal">
 
-                    <TextView
-                        android:id="@+id/tvMcpPort"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        style="@style/Text.MagicWindow.Desc" />
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
 
-                    <!-- 令牌（点击修改，长按复制） -->
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:text="@string/mcp_label_token"
-                        android:textAppearance="?attr/textAppearanceTitleSmall" />
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/mcp_label_port"
+                                style="@style/Text.MagicWindow.Caption" />
 
-                    <TextView
-                        android:id="@+id/tvMcpToken"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        style="@style/Text.MagicWindow.Desc" />
+                            <TextView
+                                android:id="@+id/tvMcpPort"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="@dimen/space_1"
+                                android:background="@drawable/bg_soft_block"
+                                android:gravity="center_vertical"
+                                android:minHeight="@dimen/min_touch"
+                                android:paddingHorizontal="@dimen/space_3"
+                                android:paddingVertical="@dimen/space_2"
+                                android:textColor="@color/text_primary"
+                                android:textSize="13sp" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="@dimen/space_3"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/mcp_label_token"
+                                style="@style/Text.MagicWindow.Caption" />
+
+                            <TextView
+                                android:id="@+id/tvMcpToken"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="@dimen/space_1"
+                                android:background="@drawable/bg_soft_block"
+                                android:ellipsize="middle"
+                                android:gravity="center_vertical"
+                                android:minHeight="@dimen/min_touch"
+                                android:paddingHorizontal="@dimen/space_3"
+                                android:paddingVertical="@dimen/space_2"
+                                android:singleLine="true"
+                                android:textColor="@color/text_primary"
+                                android:textSize="13sp" />
+                        </LinearLayout>
+                    </LinearLayout>
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnMcpJson"
-                        style="?attr/materialButtonOutlinedStyle"
+                        style="@style/Widget.MagicWindow.Button.Outlined"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_gravity="end"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="@dimen/space_3"
                         android:text="@string/mcp_btn_client_json" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -395,11 +473,12 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/card_gap"
+                android:layout_marginTop="@dimen/space_6"
                 android:layout_marginBottom="112dp"
                 android:gravity="center"
+                android:lineSpacingMultiplier="1.2"
                 android:text="@string/reboot_hint"
-                style="@style/Text.MagicWindow.Desc" />
+                style="@style/Text.MagicWindow.Caption" />
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 
@@ -409,12 +488,10 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
-        android:layout_margin="24dp"
+        android:layout_margin="@dimen/space_6"
         android:contentDescription="@string/ai_chat_title"
         android:src="@drawable/ic_sparkle"
         app:backgroundTint="?attr/colorPrimary"
-        app:tint="?attr/colorOnPrimary"
-        app:layout_anchor="@id/scrollView"
-        app:layout_anchorGravity="bottom|end" />
+        app:tint="?attr/colorOnPrimary" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

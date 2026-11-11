@@ -179,6 +179,7 @@ class AppDetailActivity : AppCompatActivity() {
         binding.btnImport.setOnClickListener { showRuleImportDialog() }
 
         buildForm()
+        Motion.staggerIn(binding.contentRoot)
     }
 
     /** 系统规则表后台加载完成：仅新规则用内置值重建表单，并刷新徽标与读取提示 */

@@ -5,15 +5,15 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingVertical="5dp">
+    android:paddingVertical="6dp">
 
-    <!-- 用户消息：右对齐，品牌蓝气泡 -->
+    <!-- 用户消息：右对齐，品牌色气泡 -->
     <LinearLayout
         android:id="@+id/layoutUser"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
         android:gravity="end"
+        android:orientation="vertical"
         android:visibility="gone">
 
         <!-- 附件缩略图行（图片九宫格式右对齐） -->
@@ -21,8 +21,8 @@
             android:id="@+id/layoutUserAttach"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
             android:gravity="end"
+            android:orientation="horizontal"
             android:visibility="gone" />
 
         <com.google.android.material.card.MaterialCardView
@@ -30,7 +30,7 @@
             android:layout_height="wrap_content"
             android:maxWidth="@dimen/chat_bubble_user"
             app:cardBackgroundColor="?attr/colorPrimary"
-            app:cardCornerRadius="20dp"
+            app:cardCornerRadius="22dp"
             app:cardElevation="0dp"
             app:strokeWidth="0dp">
 
@@ -38,10 +38,11 @@
                 android:id="@+id/tvUserMessage"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:paddingHorizontal="16dp"
-                android:paddingVertical="11dp"
-                android:textSize="15sp"
-                android:textColor="?attr/colorOnPrimary" />
+                android:lineSpacingExtra="3dp"
+                android:paddingHorizontal="@dimen/space_4"
+                android:paddingVertical="12dp"
+                android:textColor="?attr/colorOnPrimary"
+                android:textSize="15sp" />
         </com.google.android.material.card.MaterialCardView>
     </LinearLayout>
 
@@ -50,22 +51,22 @@
         android:id="@+id/layoutAi"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
         android:gravity="start"
+        android:orientation="horizontal"
         android:visibility="gone">
 
         <!-- AI 头像 -->
         <ImageView
             android:layout_width="34dp"
             android:layout_height="34dp"
-            android:layout_marginEnd="10dp"
-            android:src="@drawable/ic_sparkle"
+            android:layout_marginEnd="@dimen/space_3"
             android:background="@drawable/bg_icon_container"
             android:backgroundTint="?attr/colorPrimaryContainer"
+            android:contentDescription="@string/ai_name"
             android:padding="8dp"
             android:scaleType="centerInside"
-            app:tint="?attr/colorOnPrimaryContainer"
-            android:contentDescription="@string/ai_name" />
+            android:src="@drawable/ic_sparkle"
+            app:tint="?attr/colorOnPrimaryContainer" />
 
         <LinearLayout
             android:layout_width="0dp"
@@ -77,11 +78,11 @@
                 android:id="@+id/tvAiName"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_1"
                 android:text="@string/ai_name"
-                android:textSize="12sp"
                 android:textColor="?attr/colorPrimary"
-                android:textStyle="bold"
-                android:layout_marginBottom="3dp" />
+                android:textSize="12sp"
+                android:textStyle="bold" />
 
             <!-- 错误消息用红色描边区分，正常消息白底细描边 -->
             <com.google.android.material.card.MaterialCardView
@@ -90,77 +91,75 @@
                 android:layout_height="wrap_content"
                 android:maxWidth="@dimen/chat_bubble_ai"
                 app:cardBackgroundColor="@color/card_bg"
-                app:cardCornerRadius="18dp"
+                app:cardCornerRadius="20dp"
                 app:cardElevation="0dp"
-                app:strokeWidth="1dp"
-                app:strokeColor="@color/divider">
+                app:strokeColor="@color/stroke"
+                app:strokeWidth="1dp">
 
                 <TextView
                     android:id="@+id/tvAiMessage"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:paddingHorizontal="14dp"
-                    android:paddingVertical="10dp"
-                    android:textSize="15sp"
+                    android:lineSpacingExtra="3dp"
+                    android:paddingHorizontal="@dimen/space_4"
+                    android:paddingVertical="12dp"
                     android:textColor="?attr/colorOnSurface"
                     android:textIsSelectable="true"
-                    android:lineSpacingExtra="3dp" />
+                    android:textSize="15sp" />
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- 工具调用状态：左侧加一条品牌色竖线，与正文形成层级 -->
+            <!-- 工具调用状态：左侧品牌色竖线，与正文形成层级 -->
             <LinearLayout
                 android:id="@+id/layoutToolCall"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="5dp"
-                android:orientation="horizontal"
+                android:layout_marginTop="@dimen/space_1"
                 android:gravity="center_vertical"
+                android:orientation="horizontal"
                 android:visibility="gone">
 
                 <View
                     android:layout_width="2dp"
                     android:layout_height="14dp"
-                    android:layout_marginEnd="6dp"
+                    android:layout_marginEnd="@dimen/space_1"
                     android:background="?attr/colorPrimary" />
 
                 <TextView
                     android:id="@+id/tvToolCall"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:background="@drawable/bg_chip"
                     android:paddingHorizontal="10dp"
                     android:paddingVertical="4dp"
-                    android:textSize="11sp"
                     android:textColor="?attr/colorPrimary"
-                    android:background="@drawable/bg_chip" />
+                    android:textSize="11sp" />
             </LinearLayout>
 
             <!-- 请求失败重试 -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRetry"
-                style="@style/Widget.Material3.Button.TonalButton"
+                style="@style/Widget.MagicWindow.Button.Tonal"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:minHeight="34dp"
-                android:minWidth="0dp"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="0dp"
-                android:text="@string/ai_retry"
-                android:textSize="12sp"
+                android:layout_marginTop="@dimen/space_2"
                 android:insetTop="0dp"
                 android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:text="@string/ai_retry"
+                android:textSize="13sp"
                 android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 加载中指示器：与 AI 气泡同起点，形态为「迷你气泡 + 进度圈」 -->
+    <!-- 加载中指示器：与 AI 气泡同起点 -->
     <LinearLayout
         android:id="@+id/layoutLoading"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
         android:gravity="start|center_vertical"
-        android:paddingStart="44dp"
+        android:orientation="horizontal"
+        android:paddingStart="46dp"
+        android:paddingEnd="0dp"
         android:visibility="gone">
 
         <com.google.android.material.progressindicator.CircularProgressIndicator
@@ -173,13 +172,13 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:paddingHorizontal="12dp"
-            android:paddingVertical="6dp"
+            android:layout_marginStart="@dimen/space_2"
             android:background="@drawable/bg_chip"
+            android:paddingHorizontal="@dimen/space_3"
+            android:paddingVertical="6dp"
             android:text="@string/ai_thinking"
-            android:textSize="12sp"
-            android:textColor="?attr/colorOnSurfaceVariant" />
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textSize="12sp" />
     </LinearLayout>
 
 </LinearLayout>

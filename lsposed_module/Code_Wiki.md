@@ -196,10 +196,10 @@ App 侧激活判定：XposedServiceHelper.registerListener → onServiceBind 即
 
 | 文件 | 职责 |
 |------|------|
-| `XposedEntry.kt` | 现代 API 入口（`io.github.libxposed.api.XposedModule`）。作用域由 `META-INF/xposed/scope.list` 声明：`system`（system_server）+ 模块自身（仅用于框架登记）；`onHotReloading` 返回 false 表示不支持热重载 |
+| `XposedEntry.kt` | 现代 API 入口（`io.github.libxposed.api.XposedModule`）。作用域仅 `system`（system_server，见 `scope.list`）；`onSystemServerStarting` 先校验 `PROP_CAP_SYSTEM`；未声明 `autoHotReload`，因此不实现热重载回调 |
 | `SystemServerHooks.kt` | 注入编排器：绑定远端首选项 → 第 0 步 → 捕获 ClassLoader → autoui 注入 → embedding/fixed 注入，并注册配置变更热重载 |
 | `RuleStore.kt` | 配置读取层：`XposedInterface.getRemotePreferences` + 变更监听驱动热更新，内存快照供热路径零 IO 读取 |
-| `Reflect.kt` | 反射辅助（`field` / `call` 等），替代现代 API 已移除的 `XposedHelpers` |
+| `Reflect.kt` | 反射辅助（`field` / `call` 等），替代现代 API 已移除的 `XposedHelpers`；`method` / `field` / `constructor` 结果按（类, 名称, 参数数）缓存，避免重复扫描继承链 |
 | `XLog.kt` | 统一日志：写入 libxposed `XposedInterface.log`（LSPosed 模块日志），仅 info / error 两级。**tag 必须传 `null`**，自定义 tag 会被框架过滤、管理器看不到输出 |
 
 **steps/ 子包（注入步骤）：**
@@ -207,9 +207,9 @@ App 侧激活判定：XposedServiceHelper.registerListener → onServiceBind 即
 | 文件 | 步骤 | 职责 |
 |------|------|------|
 | `PropertyGate.kt` | 第 0 步 | 校验三个 `SystemProperty` 总开关（AE/AutoUI/Characteristics），为 false 时 hook 兜底（`ro.` 属性无法 setprop） |
-| `PluginClassLoaderCatcher.kt` | 第一步 | 三级降级策略捕获 HyperOS Stub 插件的 ClassLoader。拿到后**立即摘钩**，不影响系统热路径 |
-| `AutoUiCloudInjector.kt` | 第二步 | hook `MiuiParsingAutoUI.loadPackage`，在 before 中落盘云控文件 + 抬高版本号，after 中触发热重载。支持指纹去重避免重复写文件 |
-| `EmbeddedFixedCloudInjector.kt` | 第二步 | hook `MiuiParsingEmbeddedRule.loadPackage` / `MiuiParsingFixedOrientationRule.loadLocalFixOrientationRuleXML`，拿到宿主实例后缓存；异步执行「读全量 → 按包覆盖 → 写回 → 热重载 → 翻应用模式」。`loadPackage` 的参数个数随 ROM 版本变化（旧版 1 参、Android 17 为无参），必须按方法名取参数最少的重载，不可硬编码参数个数 |
+| `PluginClassLoaderCatcher.kt` | 第一步 | 三级降级策略捕获 HyperOS Stub 插件的 ClassLoader。拿到后**立即摘钩**，不影响系统热路径。只 hook `declaredMethods`（API 102 下构造方法 `thisObject` 为 null，挂钩拿不到实例且纯亏开销）；同一 ClassLoader 的探测结果缓存，避免重复 `Class.forName` 与异常构造 |
+| `AutoUiCloudInjector.kt` | 第二步 | hook `MiuiParsingAutoUI.loadPackage`，在 before 中落盘云控文件 + 抬高版本号，after 中触发热重载。支持指纹去重避免重复写文件；`loadPackage` 按方法名取重载（优先带 `MiuiSystemAutoUIRule` 参数者），不硬编码参数个数；`PackageRule` 类与云控基表（按文件长度 + 修改时间）均缓存，避免每次调用都 `Class.forName` + 读盘 + 解析 XML |
+| `EmbeddedFixedCloudInjector.kt` | 第二步 | hook `MiuiParsingEmbeddedRule.loadPackage` / `MiuiParsingFixedOrientationRule.loadLocalFixOrientationRuleXML`，拿到宿主实例后缓存并**立即摘除各自的捕获钩子**；异步执行「读全量 → 按包覆盖 → 写回 → 热重载 → 翻应用模式」。两者 `loadPackage` / `loadLocalFixOrientationRuleXML` 的参数个数随 ROM 版本变化（旧版 1 参、Android 17 为无参），必须按方法名取参数最少的重载，不可硬编码参数个数 |
 
 ### 4.3 `app` — 用户界面
 
@@ -315,7 +315,7 @@ object RuleStore {
 }
 ```
 
-性能设计：读侧全在内存（`@Volatile snapshot`），由 LSPosed 远端首选项的变更推送（`registerOnSharedPreferenceChangeListener`，仅监听 `KEY_RULES`）驱动热更新，热路径零 IO。LSPosed 的 `LSPosedRemotePreferences` 会在 App 侧写入后按 key 回调监听器，因此不再需要广播、`MODE_WORLD_READABLE` 或 `getSentFromPackage` 校验。
+性能设计：读侧全在内存（`@Volatile snapshot`），由 LSPosed 远端首选项的变更推送（`registerOnSharedPreferenceChangeListener`，仅监听 `KEY_RULES`）驱动热更新，热路径零 IO。LSPosed 的 `LSPosedRemotePreferences` 会在 App 侧写入后按 key 回调监听器，因此不再需要广播、`MODE_WORLD_READABLE` 或 `getSentFromPackage` 校验。**监听器必须用字段强引用持有**：`SharedPreferences` 内部以 `WeakHashMap` 存监听器，不留引用会被 GC，热更新随之静默失效。工作线程 `mw-rulestore` 首次收到变更才懒启动，不再常驻空线程。
 
 ### 5.4 `PluginClassLoaderCatcher` — ClassLoader 捕获器
 
@@ -333,7 +333,7 @@ object PluginClassLoaderCatcher {
 2. hook `MiuiEmbeddingWindowServiceImplCollector` 全部方法，从返回实例取 ClassLoader
 3. hook `MiuiEmbeddingWindowServiceLoader` 全部方法，同上
 
-**关键设计**：拿到 ClassLoader 后立即 `unhook()` 摘除所有捕获钩子，避免拖慢系统热路径。
+**关键设计**：拿到 ClassLoader 后立即 `unhook()` 摘除所有捕获钩子，避免拖慢系统热路径。只 hook `declaredMethods`：API 102 规定构造方法的 `thisObject` 为 null、返回值被框架忽略，挂钩只会白付开销。`probe` 结果按 ClassLoader 缓存（`WeakHashMap`），避免捕获前每次拦截都重复 `Class.forName` 并构造 `ClassNotFoundException`。
 
 ### 5.5 `EmbeddedFixedCloudInjector` — 主注入路径
 
@@ -353,6 +353,8 @@ object EmbeddedFixedCloudInjector {
 4. 写回 `/data/system/cloudFeature_*.xml`
 5. 调用系统方法触发热重载
 6. 通过 `onAppUiModeChanged` 翻转每个应用的当前模式
+
+捕获钩子只用于首次拿实例：`mEmbeddedRule` / `mFixOriController` 一旦缓存，立即通过各自的 `HookHandle` 摘钩（embedding 与 fixed 各自独立），此后读规则方法不再有拦截开销。
 
 ### 5.6 `McpServer` — MCP 调试服务器
 
@@ -475,9 +477,11 @@ app ──→ library:common
 ## 10. 性能优化
 
 - **热路径零 IO**：`RuleStore` 读侧全在内存快照，热路径不碰磁盘
-- **Hook 即摘**：`PluginClassLoaderCatcher` 拿到 ClassLoader 后立即摘除所有捕获钩子
+- **Hook 即摘**：`PluginClassLoaderCatcher` 拿到 ClassLoader 后、`EmbeddedFixedCloudInjector` 拿到宿主实例后，都立即摘除对应捕获钩子；只 hook 方法，不 hook 构造方法
 - **指纹去重**：`AutoUiCloudInjector` 和 `EmbeddedFixedCloudInjector` 都维护内容指纹，内容没变不重写文件
+- **解析结果缓存**：`Reflect` 按（类, 名称, 参数数）缓存 Method/Field/Constructor；`AutoUiCloudInjector` 缓存 `PackageRule` 类与云控基表（文件长度 + 修改时间不变则不读盘、不解析 XML）；`PluginClassLoaderCatcher.probe` 按 ClassLoader 缓存结果
 - **异步注入**：`EmbeddedFixedCloudInjector` 用后台线程延迟 2 秒注入，不阻塞系统启动
+- **配置写入异步化**：`ConfigRepository` 的 `commit`（本地 + 跨进程）统一在单线程 `mw-config-io` 上按序执行，不阻塞 UI
 - **LIFO 图标加载**：`AppAdapter` 用 LIFO 队列让当前可见项优先加载图标
 - **批量 su 调用**：`SystemRuleSource` 一次 `su -c` 读取所有云控文件，避免反复弹授权
 
@@ -589,7 +593,7 @@ git push origin v2.4.4
 |------|------|------|
 | `java_init.list` | `com.github.lsposed.magicwindow.hook.XposedEntry` | 模块入口类，LSPosed 据此实例化 |
 | `module.prop` | `minApiVersion=102` / `targetApiVersion=102` / `staticScope=true` / `exceptionMode=protective` | 最低与目标 API、静态作用域、异常保护模式；**不声明 `autoHotReload`**（system_server 热重载会让钩子与缓存实例错位） |
-| `scope.list` | `system` + `com.github.lsposed.magicwindow` | `system` 即 system_server（现代 API 下其包名为 `system`，不是 `android`） |
+| `scope.list` | `system` | 仅 `system`（即 system_server；现代 API 下其包名为 `system`，不是 `android`）。模块自身不再列入作用域：激活状态由框架服务绑定判定，列进去只会让框架额外向模块 App 进程注入一次 |
 
 要点：
 - **不再有** `assets/xposed_init`、Manifest 里的 `xposedmodule` / `xposedminversion` / `xposedscope` 等 meta-data；模块名取 `android:label`，描述取 `android:description`
@@ -612,6 +616,37 @@ git push origin v2.4.4
 ---
 
 ## 14. 近期修改记录
+
+### 移除模型 Top K 设置（2026-11-11）
+
+**动机：** `top_k` 仅部分端点支持，官方 OpenAI 端点严格校验时会直接 400；该参数在高级设置中可配置性低但风险高，整体移除。
+
+1. `dialog_ai_model.xml` 删除 Top K 输入框（`etTopK`），`strings.xml` 删除 `ai_model_top_k`。
+2. `MainActivity.showModelConfigDialog()` 删除 `etTopK` 的查找、回填与保存逻辑。
+3. `ModelManager.ModelConfig` 删除 `topK` 字段及 JSON 读写；旧配置中的 `topK` 键读取时被忽略，无需迁移。
+4. `AiClient` 请求体不再发送 `top_k`。
+
+### 性能与 API 102 合规性修复（2026-11-11）
+
+**日志与入口：**
+
+1. `XposedEntry.onModuleLoaded` 的 `log` 第二参改为 `null`（自定义 tag 会被 libxposed 过滤，管理器看不到输出）。
+2. `onSystemServerStarting` 增加 `PROP_CAP_SYSTEM` 能力校验；删除无用的 `onHotReloading` 覆写（`module.prop` 未声明 `autoHotReload`，回调不会触发）。
+3. `scope.list` 移除模块自身包名，静态作用域只保留 `system`。
+
+**确定性缺陷：**
+
+4. `AutoUiCloudInjector` 不再硬编码 `loadPackage` 参数个数（OS4.x 已改为无参，原写法会让 autoui 钩子被外层 `runCatching` 静默吞掉、永远不安装），改为按方法名取重载并优先带 `MiuiSystemAutoUIRule` 参数者；`loadLocalFixOrientationRuleXML` 同步改为按名取重载。
+5. `PluginClassLoaderCatcher` 不再 hook 构造方法（API 102 下构造方法 `thisObject` 为 null、返回值被忽略，取不到实例，纯开销）。
+6. `RuleStore` 变更监听器改为字段强引用持有（`SharedPreferences` 内部是 `WeakHashMap`，不留引用会被 GC，热更新静默失效）。
+
+**性能：**
+
+7. `PluginClassLoaderCatcher.probe` 按 ClassLoader 缓存结果，避免捕获前重复 `Class.forName` 与异常构造。
+8. `AutoUiCloudInjector` 缓存 `PackageRule` 类与云控基表解析结果（文件长度 + 修改时间不变则跳过读盘与 XML 解析）。
+9. `Reflect` 的 `method` / `field` / `constructor` 按（类, 名称, 参数数）缓存，避免每次沿继承链扫描。
+10. `EmbeddedFixedCloudInjector` 与 Catcher 一致：拿到宿主实例后立即摘除各自的捕获钩子（embedding / fixed 独立）。
+11. `RuleStore` 工作线程改为首次变更时懒启动；`ConfigRepository` 的持久化与推送统一到后台单线程 `mw-config-io`，避免主线程 `commit` 阻塞。
 
 ### v2.4.5 迁移到 libxposed 现代 API 102（2026-10-22）
 
@@ -692,7 +727,7 @@ git push origin v2.4.4
 
 **新增 AI 大模型能力：**
 
-1. **多模型管理**（`ai/ModelManager.kt`）：替代旧的单模型 `AiSettings`，支持多模型增删改查与全局切换。`ModelConfig` 含 apiBase/modelId/apiKey、token 上限、temperature/topP/topK、toolRounds、`enabled` 启停字段；SharedPreferences（`ai_models`）持久化。`getCurrent()` 只返回已启用模型，停用/删除当前模型时自动回退。
+1. **多模型管理**（`ai/ModelManager.kt`）：替代旧的单模型 `AiSettings`，支持多模型增删改查与全局切换。`ModelConfig` 含 apiBase/modelId/apiKey、token 上限、temperature/topP、toolRounds、`enabled` 启停字段；SharedPreferences（`ai_models`）持久化。`getCurrent()` 只返回已启用模型，停用/删除当前模型时自动回退。
 
 2. **模型管理对话框**（`MainActivity.showModelManagerDialog()`）：自定义 ListView，每行右侧依次为「编辑（铅笔）/ 删除（垃圾桶）/ 启停开关」。编辑复用 `showModelConfigDialog(model, onSaved)`（含高级设置折叠区与连通性测试），对话框叠加在管理列表之上，保存后列表自动刷新。
 
@@ -1109,7 +1144,7 @@ AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug
 - ~~指纹只覆盖模块增量~~ → **已修复**：base 键纳入指纹，云控被外部改写时模块重写而非跳过
 - `SystemRuleSource` 加载失败（首启拒绝 su）后本进程内不重试——需要 UI 重试入口的产品决策
 - 详情页/AI 对话无 `onSaveInstanceState`，manifest 未含 `uiMode`——进程回收或夜间模式切换丢草稿（涉及全部 Activity 的状态保存设计）
-- 请求体恒发 `top_k`（严格校验的官方 OpenAI 端点可能 400）——目标端点兼容策略需决策
+- ~~请求体恒发 `top_k`（严格校验的官方 OpenAI 端点可能 400）~~ → **已修复（2026-11-11）**：删除 Top K 设置，请求体不再发送 `top_k`
 - AI 侧与 MCP 侧工具输出结构差异、`AppRule` 三处平行维护、选择器公共段（沿袭上一批遗留）
 - ~~`ActivityLabelCache`/`AiSuggestCache` 无淘汰机制（慢性增长）~~ → **已修复**：三者统一继承 `PrefixedLruCache`，2000/3000/2000 条上限 + 时间戳近似 LRU 淘汰（见下方「LLM token 优化」）
 - 聊天缩略图 bind 同步解码（性能而非功能）
@@ -1149,7 +1184,7 @@ AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug
 - `activity_ai_chat.xml`：输入区调整为「附件 / 输入框 / 发送 FAB」主行聚焦，`btnModelSwitch` 下沉为独立一行（高度 32→28dp，图标 `ic_chevron_down` → `ic_tune`）；`tvToolStatus` 改居中 `wrap_content`。
 - `ui/MainActivity.kt`：`showModelConfigDialog` 高级折叠改为箭头 `rotation` 动画（-90° ↔ 0°，150ms）；`showModelManagerDialog` 行高 56→62dp、当前模型高亮（`card_bg_high` + `brand_primary` 1dp 描边）、停用模型 `alpha=0.55f`、「当前」标记改胶囊（`ok_green` / `ok_green_bg`）、图标换自有 vector 40→38dp、删除确认文案改字符串资源。
 - **新增 vector**：`ic_edit.xml`、`ic_delete.xml`（替换 `android.R.drawable.ic_menu_edit`/`ic_menu_delete`）。
-- **新增字符串**（`strings.xml`）：`ai_model_delete`、`ai_model_delete_confirm`、`ai_model_input_tokens`、`ai_model_output_tokens`、`ai_model_temperature`、`ai_model_top_p`、`ai_model_top_k`。
+- **新增字符串**（`strings.xml`）：`ai_model_delete`、`ai_model_delete_confirm`、`ai_model_input_tokens`、`ai_model_output_tokens`、`ai_model_temperature`、`ai_model_top_p`、`ai_model_top_k`（`ai_model_top_k` 已于 2026-11-11 随 Top K 设置移除）。
 
 **变更文件：**
 
@@ -1190,3 +1225,29 @@ AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug
 **行为变化：** 云端模型仍需填密钥才能正常鉴权（请求头逻辑未变）；本地服务可零密钥接入。安全性上明文流量全局放开，属于本地调试场景的取舍。
 
 **验证：** `gradlew :app:compileDebugKotlin --offline` 通过。
+
+---
+
+### 界面重设计：清爽明亮 + Material 3 动效体系（2026-11-11）
+
+**目标：** 全量刷新模块 UI 视觉语言，统一「清爽明亮」的设计语言（浅色底 + 白卡片 + 细描边 + 大留白），补齐 150–300ms 的页面/点击/状态过渡，并满足 Material 3 触摸热区要求。
+
+**设计令牌（`res/values`）：**
+
+| 令牌 | 取值 |
+|------|------|
+| 背景 / 卡片 / 柔和面 | `app_bg #F4F7FB` / `card_bg #FFFFFF` / `surface_soft #F0F5FA` |
+| 描边 / 分割线 | `stroke #E2E9F2` / `divider #E6ECF4` |
+| 文字层级 | `text_primary #111820` / `text_secondary #5A6A7C` / `text_tertiary #8D99A8` |
+| 品牌色 | 主 `#2F6BFF`，辅助青绿 `#0E9C87`（暗色模式自动降饱和） |
+| 圆角 | 卡片 24dp、首页状态卡 28dp、按钮/列表 16dp、Chip 12dp |
+| 间距 | 4/8/12/16/20/24 刻度；页面左右 20dp；卡片间距 14dp |
+| 触摸热区 | `min_touch 48dp`；列表行 `row_height 72dp`；Chip 40dp 高度 + `ensureMinTouchTargetSize` 扩到 48dp |
+
+**动效资源（`res/anim`）：** `activity_open_enter/exit`、`activity_close_enter/exit`（220/200ms，淡入位移 + 0.98 缩放）、`dialog_enter/exit`（180/150ms 缩放淡入）、`item_enter + layout_app_list`（列表逐项 200ms、6% 错峰）。Activity 转场挂在 `Theme.MagicWindow` 的 `android:windowAnimationStyle`，弹窗转场挂在 `ThemeOverlay.MagicWindow.Dialog`。
+
+**交互反馈：** 新增 `ui/Motion.kt`（`pressScale` 150ms 按压 0.97 缩放、`staggerIn` 首屏 40ms 错峰入场、`playListEnterAnimation` 列表入场）。已接入首页卡片（`MainActivity.setupUi`）、应用列表（加载完成后一次性播放）、应用行（`AppAdapter.onCreateViewHolder`）、详情页表单（`buildForm` 后错峰）。
+
+**布局改造：** `activity_main` 改为「渐变状态卡 + 分组标题 + 留白卡片」结构；`item_app` 改为 72dp 圆角卡片行并新增右箭头（多选模式自动隐藏）；`activity_app_list` 搜索框改 20dp 圆角浅填充、Chip 过滤条、批量面板卡片化；`activity_app_detail` 模式选择四等分、底部操作栏圆角上浮 + 48dp 按钮；`activity_ai_chat` 输入区卡片化、发送/附件 48dp；`item_ai_message` 气泡 20/22dp 圆角、错误气泡描边、重试按钮 48dp；`card_section` 增加品牌色竖条标题。平板适配沿用 `values-sw600dp / sw840dp`（列表 2/3 列、页面留白 40/128dp）。
+
+**验证：** `gradlew :app:assembleDebug :app:lintDebug` BUILD SUCCESSFUL；Lint 无 `TouchTargetSizeCheck` / `ClickableViewAccessibility` 新增问题，`SmallSp`、`RtlSymmetry`、`UseCompatTextViewDrawableXml` 已清零。**限制：** 本机无连接设备与可用 AVD，运行时多机型截图验证未执行，需在真机 / 模拟器上补做。

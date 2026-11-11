@@ -11,25 +11,39 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/tvSection"
-            style="@style/Text.MagicWindow.Section"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <View
+                android:layout_width="3dp"
+                android:layout_height="16dp"
+                android:background="@drawable/bg_section_bar" />
+
+            <TextView
+                android:id="@+id/tvSection"
+                style="@style/Text.MagicWindow.Section"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/space_2"
+                android:layout_weight="1" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tvSectionDesc"
             style="@style/Text.MagicWindow.Desc"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
+            android:layout_marginTop="@dimen/space_2"
             android:visibility="gone" />
 
         <LinearLayout
             android:id="@+id/body"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="@dimen/space_3"
             android:orientation="vertical" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

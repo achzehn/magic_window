@@ -203,19 +203,6 @@
                     android:inputType="numberDecimal"
                     android:text="1.0" />
             </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="@string/ai_model_top_k"
-                style="@style/Widget.MagicWindow.TextInput.Outlined">
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etTopK"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="number"
-                    android:text="35" />    
-            </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
     </LinearLayout>
 </ScrollView>

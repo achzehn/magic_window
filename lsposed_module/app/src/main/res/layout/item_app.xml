@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/rowRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:layout_marginHorizontal="@dimen/item_margin_h"
+    android:layout_marginVertical="@dimen/item_margin_v"
     android:background="@drawable/bg_app_item"
     android:clickable="true"
     android:focusable="true"
     android:gravity="center_vertical"
-    android:minHeight="64dp"
+    android:minHeight="@dimen/row_height"
     android:orientation="horizontal"
-    android:layout_marginHorizontal="@dimen/item_margin_h"
-    android:layout_marginVertical="@dimen/item_margin_v"
     android:paddingStart="@dimen/item_padding_h"
     android:paddingTop="10dp"
     android:paddingEnd="@dimen/item_padding_h"
@@ -20,6 +21,7 @@
         android:id="@+id/check"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginEnd="@dimen/space_1"
         android:clickable="false"
         android:focusable="false"
         android:visibility="gone" />
@@ -35,7 +37,7 @@
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="12dp"
+        android:layout_marginStart="@dimen/space_3"
         android:layout_weight="1"
         android:orientation="vertical">
 
@@ -45,24 +47,29 @@
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="1"
-            android:textAppearance="?attr/textAppearanceBodyLarge" />
+            android:textColor="@color/text_primary"
+            android:textSize="15sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/tvPkg"
-            style="@style/Text.MagicWindow.Desc"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
             android:ellipsize="middle"
-            android:maxLines="1" />
+            android:maxLines="1"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
 
         <TextView
             android:id="@+id/tvBuiltin"
-            style="@style/Text.MagicWindow.Desc"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
             android:ellipsize="end"
             android:maxLines="1"
             android:textColor="@color/field_en"
+            android:textSize="11sp"
             android:visibility="gone" />
     </LinearLayout>
 
@@ -70,11 +77,20 @@
         android:id="@+id/tvMode"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
+        android:layout_marginStart="@dimen/space_2"
+        android:background="@drawable/bg_mode_chip"
         android:paddingStart="10dp"
-        android:paddingTop="3dp"
+        android:paddingTop="4dp"
         android:paddingEnd="10dp"
-        android:paddingBottom="3dp"
-        android:textAppearance="?attr/textAppearanceLabelSmall"
+        android:paddingBottom="4dp"
+        android:textSize="11sp"
         android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/chevron"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_marginStart="@dimen/space_1"
+        android:contentDescription="@null"
+        android:src="@drawable/ic_chevron_right" />
 </LinearLayout>

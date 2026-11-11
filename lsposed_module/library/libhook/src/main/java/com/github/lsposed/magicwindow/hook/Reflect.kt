@@ -12,14 +12,30 @@ import java.lang.reflect.Method
  */
 internal object Reflect {
 
+    private data class MemberKey(val owner: Class<*>, val name: String, val count: Int = 0)
+
+    /**
+     * 反射结果缓存：method/field 每次沿继承链扫描 `declaredMethods` 的成本不低，
+     * 而调用点（按规则数循环的注入）会重复命中同一批成员。
+     */
+    private val methodCache = java.util.concurrent.ConcurrentHashMap<MemberKey, Method>()
+    private val fieldCache = java.util.concurrent.ConcurrentHashMap<MemberKey, Field>()
+    private val ctorCache = java.util.concurrent.ConcurrentHashMap<MemberKey, Constructor<*>>()
+
     fun findClass(name: String, classLoader: ClassLoader): Class<*> = Class.forName(name, false, classLoader)
 
     /** 按方法名 + 参数个数定位（参数精确类型在跨版本 ROM 上不稳定，按个数匹配更耐用） */
     fun method(target: Class<*>, name: String, paramCount: Int): Method {
+        val key = MemberKey(target, name, paramCount)
+        methodCache[key]?.let { return it }
         var c: Class<*>? = target
         while (c != null) {
-            c.declaredMethods.firstOrNull { it.name == name && it.parameterCount == paramCount }
-                ?.let { return it.apply { isAccessible = true } }
+            val found = c.declaredMethods.firstOrNull { it.name == name && it.parameterCount == paramCount }
+            if (found != null) {
+                found.isAccessible = true
+                methodCache[key] = found
+                return found
+            }
             c = c.superclass
         }
         throw NoSuchMethodException("${target.name}#$name/$paramCount")
@@ -35,16 +51,27 @@ internal object Reflect {
         return emptyList()
     }
 
-    fun constructor(target: Class<*>, paramCount: Int): Constructor<*> =
-        target.declaredConstructors.firstOrNull { it.parameterCount == paramCount }
-            ?.apply { isAccessible = true }
+    fun constructor(target: Class<*>, paramCount: Int): Constructor<*> {
+        val key = MemberKey(target, "<init>", paramCount)
+        ctorCache[key]?.let { return it }
+        val found = target.declaredConstructors.firstOrNull { it.parameterCount == paramCount }
             ?: throw NoSuchMethodException("${target.name}<init>/$paramCount")
+        found.isAccessible = true
+        ctorCache[key] = found
+        return found
+    }
 
     fun field(target: Class<*>, name: String): Field {
+        val key = MemberKey(target, name)
+        fieldCache[key]?.let { return it }
         var c: Class<*>? = target
         while (c != null) {
-            c.declaredFields.firstOrNull { it.name == name }
-                ?.let { return it.apply { isAccessible = true } }
+            val found = c.declaredFields.firstOrNull { it.name == name }
+            if (found != null) {
+                found.isAccessible = true
+                fieldCache[key] = found
+                return found
+            }
             c = c.superclass
         }
         throw NoSuchFieldException("${target.name}#$name")

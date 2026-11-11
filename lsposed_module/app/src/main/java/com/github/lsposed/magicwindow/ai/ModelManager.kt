@@ -24,7 +24,6 @@ object ModelManager {
         val toolRounds: Int = 120,
         val temperature: Float = 0.1f,
         val topP: Float = 1.0f,
-        val topK: Int = 35,
         val enabled: Boolean = true
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
@@ -38,7 +37,6 @@ object ModelManager {
             put("toolRounds", toolRounds)
             put("temperature", temperature.toDouble())
             put("topP", topP.toDouble())
-            put("topK", topK)
             put("enabled", enabled)
         }
 
@@ -54,7 +52,6 @@ object ModelManager {
                 toolRounds = o.optInt("toolRounds", 120),
                 temperature = o.optDouble("temperature", 0.3).toFloat(),
                 topP = o.optDouble("topP", 1.0).toFloat(),
-                topK = o.optInt("topK", 35),
                 enabled = o.optBoolean("enabled", true)
             )
         }

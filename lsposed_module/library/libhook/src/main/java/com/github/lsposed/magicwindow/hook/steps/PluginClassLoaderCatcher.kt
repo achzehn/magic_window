@@ -52,10 +52,22 @@ object PluginClassLoaderCatcher {
         hookAllMethods(xposed, systemServerClassLoader, Constants.CLASS_EWS_LOADER)
     }
 
-    private fun probe(cl: ClassLoader): Boolean = runCatching {
-        Reflect.findClass(Constants.CLASS_SYSTEM_EMBEDDED_RULE, cl)
-        true
-    }.getOrDefault(false)
+    /**
+     * 同一 ClassLoader 只探测一次：ClassNotFoundException 的构造成本远高于普通调用，
+     * 捕获前的每次拦截都重复探测会明显拖慢系统热路径。
+     */
+    private val probeCache =
+        java.util.Collections.synchronizedMap(java.util.WeakHashMap<ClassLoader, Boolean>())
+
+    private fun probe(cl: ClassLoader): Boolean {
+        probeCache[cl]?.let { return it }
+        val ok = runCatching {
+            Reflect.findClass(Constants.CLASS_SYSTEM_EMBEDDED_RULE, cl)
+            true
+        }.getOrDefault(false)
+        probeCache[cl] = ok
+        return ok
+    }
 
     private fun hookAllMethods(
         xposed: XposedInterface,
@@ -67,8 +79,9 @@ object PluginClassLoaderCatcher {
         }.getOrElse { return }
 
         var count = 0
-        val executables: List<Executable> =
-            clazz.declaredMethods.toList() + clazz.declaredConstructors.toList()
+        // 不挂钩构造方法：API 102 下构造方法的 thisObject 为 null、返回值被框架忽略，
+        // 拿不到实例，只会白白付出拦截开销
+        val executables: List<Executable> = clazz.declaredMethods.toList()
         executables.forEachIndexed { index, e ->
             runCatching {
                 e.isAccessible = true
@@ -100,8 +113,7 @@ object PluginClassLoaderCatcher {
         XLog.i("插件 ClassLoader 已就绪（$from）")
 
         // 使命完成，立刻摘钩，不再干扰系统热路径
-        val hooks = catcherHooks.toList()
-        catcherHooks.clear()
+        val hooks = synchronized(catcherHooks) { catcherHooks.toList().also { catcherHooks.clear() } }
         hooks.forEach { runCatching { it.unhook() } }
         if (hooks.isNotEmpty()) XLog.i("已摘除 ${hooks.size} 个捕获用钩子")
 

@@ -4,8 +4,8 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true"
-    android:background="@color/app_bg">
+    android:background="@color/app_bg"
+    android:fitsSystemWindows="true">
 
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
@@ -19,6 +19,7 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
+            android:background="@android:color/transparent"
             app:navigationIcon="@drawable/ic_back"
             app:title="@string/title_app_list"
             app:titleTextAppearance="@style/Text.MagicWindow.CardTitle" />
@@ -38,15 +39,17 @@
                 android:layout_height="wrap_content"
                 android:imeOptions="actionSearch"
                 android:inputType="text"
-                android:maxLines="1" />
+                android:maxLines="1"
+                android:minHeight="@dimen/min_touch"
+                android:textSize="15sp" />
         </com.google.android.material.textfield.TextInputLayout>
 
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingHorizontal="@dimen/page_padding"
-            android:paddingTop="10dp"
-            android:paddingBottom="2dp"
+            android:paddingTop="@dimen/space_3"
+            android:paddingBottom="@dimen/space_1"
             android:scrollbars="none">
 
             <com.google.android.material.chip.ChipGroup
@@ -102,8 +105,8 @@
         android:layout_height="match_parent"
         android:clipToPadding="false"
         android:paddingHorizontal="@dimen/list_edge"
-        android:paddingTop="4dp"
-        android:paddingBottom="160dp"
+        android:paddingTop="@dimen/space_2"
+        android:paddingBottom="168dp"
         app:layout_behavior="@string/appbar_scrolling_view_behavior" />
 
     <ProgressBar
@@ -120,7 +123,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginHorizontal="@dimen/page_padding"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="@dimen/space_4"
         android:visibility="gone"
         app:cardElevation="8dp">
 
@@ -133,13 +136,15 @@
                 android:id="@+id/tvBatchTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textAppearance="?attr/textAppearanceTitleSmall" />
+                android:textColor="@color/text_primary"
+                android:textSize="15sp"
+                android:textStyle="bold" />
 
             <com.google.android.material.button.MaterialButtonToggleGroup
                 android:id="@+id/batchModeGroup"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/row_gap"
+                android:layout_marginTop="@dimen/space_3"
                 app:selectionRequired="true"
                 app:singleSelection="true">
 
@@ -147,53 +152,73 @@
                     android:id="@+id/btnModeOff"
                     style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="0dp"
-                    android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:text="@string/mode_off" />
+                    android:layout_weight="1"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:text="@string/mode_off"
+                    android:textSize="12sp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnModeFull"
                     style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="0dp"
-                    android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:text="@string/mode_full" />
+                    android:layout_weight="1"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:text="@string/mode_full"
+                    android:textSize="12sp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnModeEmbedding"
                     style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="0dp"
-                    android:layout_weight="1"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:checked="true"
-                    android:text="@string/mode_embedding" />
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:text="@string/mode_embedding"
+                    android:textSize="12sp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnModeFixed"
                     style="?attr/materialButtonOutlinedStyle"
                     android:layout_width="0dp"
-                    android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:text="@string/mode_fixed" />
+                    android:layout_weight="1"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:text="@string/mode_fixed"
+                    android:textSize="12sp" />
             </com.google.android.material.button.MaterialButtonToggleGroup>
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
+                android:layout_marginTop="@dimen/space_2"
                 android:text="@string/mode_priority_hint"
                 style="@style/Text.MagicWindow.Desc" />
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/row_gap"
+                android:layout_marginTop="@dimen/space_3"
                 android:gravity="end"
                 android:orientation="horizontal">
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnBatchClear"
-                    style="?attr/materialButtonOutlinedStyle"
+                    style="@style/Widget.MagicWindow.Button.Outlined"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/batch_clear" />
@@ -202,7 +227,7 @@
                     android:id="@+id/btnBatchApply"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="@dimen/row_gap"
+                    android:layout_marginStart="@dimen/space_2"
                     android:text="@string/batch_apply" />
             </LinearLayout>
         </LinearLayout>

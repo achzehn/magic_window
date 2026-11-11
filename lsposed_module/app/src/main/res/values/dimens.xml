@@ -1,23 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 页面节奏 -->
-    <dimen name="page_padding">16dp</dimen>
-    <dimen name="card_gap">12dp</dimen>
-    <dimen name="row_gap">8dp</dimen>
-    <dimen name="icon_size">40dp</dimen>
+    <!-- ===== 间距刻度（4dp 基准） ===== -->
+    <dimen name="space_1">4dp</dimen>
+    <dimen name="space_2">8dp</dimen>
+    <dimen name="space_3">12dp</dimen>
+    <dimen name="space_4">16dp</dimen>
+    <dimen name="space_5">20dp</dimen>
+    <dimen name="space_6">24dp</dimen>
 
-    <!-- HyperOS 风格圆角 -->
-    <dimen name="card_radius">22dp</dimen>
-    <dimen name="card_padding">18dp</dimen>
+    <!-- ===== 页面节奏 ===== -->
+    <dimen name="page_padding">20dp</dimen>
+    <dimen name="card_gap">14dp</dimen>
+    <dimen name="row_gap">10dp</dimen>
+    <dimen name="icon_size">44dp</dimen>
 
-    <!-- 应用列表（手机：通栏列表） -->
+    <!-- ===== 圆角体系 ===== -->
+    <dimen name="radius_small">12dp</dimen>
+    <dimen name="radius_medium">16dp</dimen>
+    <dimen name="radius_large">24dp</dimen>
+    <dimen name="radius_hero">28dp</dimen>
+    <dimen name="card_radius">@dimen/radius_large</dimen>
+    <dimen name="card_padding">@dimen/space_5</dimen>
+
+    <!-- ===== 交互热区 ===== -->
+    <dimen name="min_touch">48dp</dimen>
+    <dimen name="row_height">72dp</dimen>
+
+    <!-- 应用列表（手机：留白卡片行） -->
     <dimen name="list_edge">0dp</dimen>
-    <dimen name="item_margin_h">0dp</dimen>
-    <dimen name="item_margin_v">0dp</dimen>
+    <dimen name="item_margin_h">8dp</dimen>
+    <dimen name="item_margin_v">5dp</dimen>
     <dimen name="item_padding_h">16dp</dimen>
 
     <!-- 图标圆角蒙版 -->
-    <dimen name="icon_corner">11dp</dimen>
+    <dimen name="icon_corner">12dp</dimen>
 
     <!-- AI 聊天气泡最大宽度（手机） -->
     <dimen name="chat_bubble_user">300dp</dimen>

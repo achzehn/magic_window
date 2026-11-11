@@ -127,6 +127,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUi() {
+        // 首页：卡片错峰入场 + 大卡片按压缩放反馈
+        Motion.staggerIn(binding.contentRoot)
+        Motion.pressScale(binding.cardApps)
+
         binding.cardApps.setOnClickListener {
             startActivity(Intent(this, AppListActivity::class.java))
         }
@@ -311,7 +315,6 @@ class MainActivity : AppCompatActivity() {
         val etToolRounds = view.findViewById<EditText>(R.id.etToolRounds)
         val etTemperature = view.findViewById<EditText>(R.id.etTemperature)
         val etTopP = view.findViewById<EditText>(R.id.etTopP)
-        val etTopK = view.findViewById<EditText>(R.id.etTopK)
         val btnTest = view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnTestConnection)
         val tvTestResult = view.findViewById<TextView>(R.id.tvTestResult)
         val btnAdvanced = view.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnAdvanced)
@@ -329,7 +332,6 @@ class MainActivity : AppCompatActivity() {
             etToolRounds.setText(model.toolRounds.toString())
             etTemperature.setText(model.temperature.toString())
             etTopP.setText(model.topP.toString())
-            etTopK.setText(model.topK.toString())
         }
 
         // 高级配置折叠：收起时箭头旋转 -90°，展开时归位，形成连续的方向反馈
@@ -432,7 +434,6 @@ class MainActivity : AppCompatActivity() {
                     toolRounds = etToolRounds.text.toString().toIntOrNull() ?: 120,
                     temperature = etTemperature.text.toString().toFloatOrNull() ?: 0.3f,
                     topP = etTopP.text.toString().toFloatOrNull() ?: 1.0f,
-                    topK = etTopK.text.toString().toIntOrNull() ?: 35,
                     enabled = model?.enabled ?: true
                 )
                 if (model != null) {

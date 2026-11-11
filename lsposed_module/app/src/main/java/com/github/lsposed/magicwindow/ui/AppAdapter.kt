@@ -90,7 +90,9 @@ class AppAdapter(
     class VH(val binding: ItemAppBinding) : RecyclerView.ViewHolder(binding.root)
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH =
-        VH(ItemAppBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+        VH(ItemAppBinding.inflate(LayoutInflater.from(parent.context), parent, false)).also {
+            Motion.pressScale(it.binding.root)
+        }
 
     override fun getItemCount(): Int = items.size
 
@@ -158,6 +160,8 @@ class AppAdapter(
 
         b.check.visibility = if (selectionMode) View.VISIBLE else View.GONE
         b.check.isChecked = selected.contains(item.packageName)
+        // 多选模式用勾选框替代「进入详情」箭头，避免两种指示同时出现
+        b.chevron.visibility = if (selectionMode) View.GONE else View.VISIBLE
 
         b.root.setOnClickListener {
             if (selectionMode) onToggle(item) else onClick(item)

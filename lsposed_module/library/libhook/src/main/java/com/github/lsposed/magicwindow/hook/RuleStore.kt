@@ -33,10 +33,22 @@ object RuleStore {
 
     private val loadLock = Any()
 
-    /** 热更新专用工作线程：变更回调在 binder 线程触发，文件 IO 与注入器全量读写必须离开该线程 */
-    private val worker = android.os.Handler(
-        android.os.HandlerThread("mw-rulestore").apply { start() }.looper
-    )
+    /**
+     * 变更监听器强引用：Android 的 SharedPreferences 内部用 WeakHashMap 持有监听器，
+     * 不保留强引用会被 GC 掉，配置热更新将静默失效且无任何日志。
+     */
+    private var changeListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+
+    /** 热更新专用工作线程：首次收到变更才启动，避免 system_server 常驻空线程 */
+    @Volatile
+    private var worker: android.os.Handler? = null
+
+    private fun workerHandler(): android.os.Handler =
+        worker ?: synchronized(loadLock) {
+            worker ?: android.os.Handler(
+                android.os.HandlerThread("mw-rulestore").apply { start() }.looper
+            ).also { worker = it }
+        }
 
     // ── 初始化 ──────────────────────────────────────────────
 
@@ -49,10 +61,12 @@ object RuleStore {
         }
         prefs = p
         // 变更回调在 binder 线程，只入队；重读与注入全部交给工作线程
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == null || key == Constants.KEY_RULES) notifyFromApp()
+        }
+        changeListener = listener
         runCatching {
-            p.registerOnSharedPreferenceChangeListener { _, key ->
-                if (key == null || key == Constants.KEY_RULES) notifyFromApp()
-            }
+            p.registerOnSharedPreferenceChangeListener(listener)
         }.onFailure { XLog.e("注册配置变更监听失败，配置热更新将不可用", it) }
         loadNow()
     }
@@ -77,7 +91,7 @@ object RuleStore {
 
     /** 配置变更后调用：只入队，重读与注入全部在工作线程执行 */
     fun notifyFromApp() {
-        worker.post {
+        workerHandler().post {
             loadNow()
             XLog.i("配置已更新，生效规则 ${snapshot.activeRules.size} 条")
             changeListeners.forEach { l -> runCatching { l() }.onFailure { XLog.e("配置变更回调失败", it) } }

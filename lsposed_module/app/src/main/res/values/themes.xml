@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- ============ 形状体系：HyperOS 大圆角 ============ -->
+    <!-- ============ 形状体系 ============ -->
     <style name="ShapeAppearance.MagicWindow.Small" parent="">
         <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">12dp</item>
+        <item name="cornerSize">@dimen/radius_small</item>
     </style>
 
     <style name="ShapeAppearance.MagicWindow.Medium" parent="">
         <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">16dp</item>
+        <item name="cornerSize">@dimen/radius_medium</item>
     </style>
 
     <style name="ShapeAppearance.MagicWindow.Large" parent="">
         <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">22dp</item>
+        <item name="cornerSize">@dimen/radius_large</item>
     </style>
 
     <!-- ============ 主题 ============ -->
@@ -22,7 +22,8 @@
         <!-- 系统栏透明，内容边到边 -->
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar" tools:targetApi="m">@bool/is_light_theme</item>
+        <item name="android:windowLightStatusBar">@bool/is_light_theme</item>
+        <item name="android:windowLightNavigationBar">@bool/is_light_theme</item>
         <item name="android:windowBackground">@color/app_bg</item>
         <item name="android:colorBackground">@color/app_bg</item>
 
@@ -46,12 +47,14 @@
         <item name="colorSurfaceContainer">@color/card_bg</item>
         <item name="colorSurfaceContainerHigh">@color/card_bg</item>
         <item name="colorSurfaceContainerHighest">@color/card_bg_high</item>
-        <item name="colorOutline">@color/divider</item>
+        <item name="colorOutline">@color/stroke</item>
         <item name="colorOutlineVariant">@color/divider</item>
         <item name="colorError">@color/conflict_error</item>
+        <item name="colorControlHighlight">@color/ripple</item>
 
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:textColorHint">@color/text_tertiary</item>
         <item name="android:listDivider">@color/divider</item>
 
         <!-- 圆角形状 -->
@@ -66,6 +69,30 @@
         <item name="chipGroupStyle">@style/Widget.MagicWindow.ChipGroup</item>
         <item name="textInputStyle">@style/Widget.MagicWindow.TextInput.Outlined</item>
         <item name="bottomSheetDialogTheme">@style/ThemeOverlay.MagicWindow.BottomSheet</item>
+        <item name="materialCardViewStyle">@style/Widget.MagicWindow.Card</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.MagicWindow.Dialog</item>
+
+        <!-- 页面切换动效：220ms 淡入位移，遵循 Material 时长区间 -->
+        <item name="android:windowActivityTransitions">true</item>
+        <item name="android:windowAnimationStyle">@style/Animation.MagicWindow.Activity</item>
+    </style>
+
+    <!-- ============ 页面/弹窗动效 ============ -->
+    <style name="Animation.MagicWindow.Activity" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/activity_open_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/activity_open_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/activity_close_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/activity_close_exit</item>
+    </style>
+
+    <style name="Animation.MagicWindow.Dialog" parent="@android:style/Animation.Dialog">
+        <item name="android:windowEnterAnimation">@anim/dialog_enter</item>
+        <item name="android:windowExitAnimation">@anim/dialog_exit</item>
+    </style>
+
+    <!-- 弹窗：180ms 缩放淡入，避免默认的瞬切 -->
+    <style name="ThemeOverlay.MagicWindow.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="android:windowAnimationStyle">@style/Animation.MagicWindow.Dialog</item>
     </style>
 
     <!-- ============ 卡片 ============ -->
@@ -74,19 +101,26 @@
         <item name="contentPadding">@dimen/card_padding</item>
         <item name="cardBackgroundColor">@color/card_bg</item>
         <item name="cardElevation">0dp</item>
-        <item name="strokeWidth">0dp</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="strokeColor">@color/stroke</item>
         <item name="rippleColor">?attr/colorControlHighlight</item>
     </style>
 
-    <!-- ============ 文字 ============ -->
-    <!-- 大标题（折叠工具栏展开态） -->
-    <style name="TextAppearance.MagicWindow.LargeTitle" parent="TextAppearance.Material3.HeadlineSmall">
-        <item name="android:textSize">26sp</item>
-        <item name="android:textStyle">bold</item>
-        <item name="android:fontFamily">sans-serif-medium</item>
-        <item name="android:textColor">@color/text_primary</item>
+    <!-- 首页状态卡：渐变 + 浅描边 -->
+    <style name="Widget.MagicWindow.Card.Hero" parent="Widget.MagicWindow.Card">
+        <item name="cardBackgroundColor">@android:color/transparent</item>
+        <item name="cardCornerRadius">@dimen/radius_hero</item>
+        <item name="strokeColor">@color/hero_stroke</item>
     </style>
 
+    <!-- 可点击的大卡片：按压时有轻微缩放（配合 Motion.pressScale） -->
+    <style name="Widget.MagicWindow.Card.Clickable" parent="Widget.MagicWindow.Card">
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:foreground">?attr/selectableItemBackground</item>
+    </style>
+
+    <!-- ============ 文字 ============ -->
     <!-- 卡片标题 -->
     <style name="Text.MagicWindow.CardTitle" parent="TextAppearance.Material3.TitleMedium">
         <item name="android:textSize">18sp</item>
@@ -95,40 +129,54 @@
     </style>
 
     <!-- 分组标题 -->
-    <style name="Text.MagicWindow.Section" parent="TextAppearance.Material3.TitleMedium">
-        <item name="android:textSize">16sp</item>
+    <style name="Text.MagicWindow.Section" parent="TextAppearance.Material3.TitleSmall">
+        <item name="android:textSize">15sp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:textColor">@color/text_primary</item>
+        <item name="android:letterSpacing">0.01</item>
     </style>
 
     <!-- 辅助说明 -->
     <style name="Text.MagicWindow.Desc" parent="TextAppearance.Material3.BodySmall">
         <item name="android:textSize">13sp</item>
         <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:lineSpacingMultiplier">1.2</item>
     </style>
 
-    <!-- ============ 按钮：圆角 14dp，不全大写 ============ -->
+    <!-- 小标签 -->
+    <style name="Text.MagicWindow.Caption" parent="TextAppearance.Material3.LabelSmall">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/text_tertiary</item>
+    </style>
+
+    <!-- ============ 按钮：48dp 热区，圆角 16dp ============ -->
     <style name="Widget.MagicWindow.Button" parent="Widget.Material3.Button">
-        <item name="cornerRadius">14dp</item>
+        <item name="cornerRadius">@dimen/radius_medium</item>
         <item name="android:textAllCaps">false</item>
-        <item name="android:minHeight">48dp</item>
+        <item name="android:minHeight">@dimen/min_touch</item>
         <item name="android:paddingStart">20dp</item>
         <item name="android:paddingEnd">20dp</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:textSize">15sp</item>
     </style>
 
     <style name="Widget.MagicWindow.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
-        <item name="cornerRadius">14dp</item>
+        <item name="cornerRadius">@dimen/radius_medium</item>
         <item name="android:textAllCaps">false</item>
-        <item name="android:minHeight">48dp</item>
-        <item name="strokeColor">@color/divider</item>
+        <item name="android:minHeight">@dimen/min_touch</item>
+        <item name="strokeColor">@color/stroke</item>
         <item name="android:paddingStart">16dp</item>
         <item name="android:paddingEnd">16dp</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:textSize">15sp</item>
     </style>
 
     <style name="Widget.MagicWindow.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
-        <item name="cornerRadius">14dp</item>
+        <item name="cornerRadius">@dimen/radius_medium</item>
         <item name="android:textAllCaps">false</item>
-        <item name="android:minHeight">48dp</item>
+        <item name="android:minHeight">@dimen/min_touch</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:textSize">15sp</item>
     </style>
 
     <!-- ============ FAB：圆角方形 ============ -->
@@ -142,50 +190,57 @@
         <item name="cornerSize">18dp</item>
     </style>
 
-    <!-- ============ Chip：圆角矩形，无描边 ============ -->
+    <!-- ============ Chip：48dp 触摸热区，圆角 12dp ============ -->
     <style name="Widget.MagicWindow.Chip.Filter" parent="Widget.Material3.Chip.Filter">
-        <item name="chipCornerRadius">12dp</item>
+        <item name="chipCornerRadius">@dimen/radius_small</item>
         <item name="chipStrokeWidth">0dp</item>
         <item name="chipBackgroundColor">@color/chip_filter_bg</item>
         <item name="android:textColor">@color/chip_filter_text</item>
         <item name="android:textAppearance">@style/TextAppearance.MagicWindow.Chip</item>
         <item name="checkedIconVisible">false</item>
-        <item name="chipMinHeight">36dp</item>
+        <item name="chipMinHeight">40dp</item>
+        <item name="ensureMinTouchTargetSize">true</item>
     </style>
 
     <style name="TextAppearance.MagicWindow.Chip" parent="TextAppearance.Material3.LabelLarge">
         <item name="android:textSize">13sp</item>
+        <item name="android:letterSpacing">0</item>
     </style>
 
     <style name="Widget.MagicWindow.ChipGroup" parent="Widget.Material3.ChipGroup">
-        <item name="chipSpacingVertical">6dp</item>
+        <item name="chipSpacingHorizontal">8dp</item>
+        <item name="chipSpacingVertical">8dp</item>
     </style>
 
-    <!-- ============ 文本框：14dp 圆角描边 ============ -->
+    <!-- ============ 文本框：16dp 圆角描边 ============ -->
     <style name="Widget.MagicWindow.TextInput.Outlined" parent="Widget.Material3.TextInputLayout.OutlinedBox">
-        <item name="boxCornerRadiusTopStart">14dp</item>
-        <item name="boxCornerRadiusTopEnd">14dp</item>
-        <item name="boxCornerRadiusBottomStart">14dp</item>
-        <item name="boxCornerRadiusBottomEnd">14dp</item>
+        <item name="boxCornerRadiusTopStart">@dimen/radius_medium</item>
+        <item name="boxCornerRadiusTopEnd">@dimen/radius_medium</item>
+        <item name="boxCornerRadiusBottomStart">@dimen/radius_medium</item>
+        <item name="boxCornerRadiusBottomEnd">@dimen/radius_medium</item>
+        <item name="boxStrokeColor">@color/text_input_stroke</item>
+        <item name="boxStrokeWidth">1dp</item>
+        <item name="boxStrokeWidthFocused">2dp</item>
     </style>
 
     <style name="Widget.MagicWindow.TextInput.Dropdown" parent="Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
-        <item name="boxCornerRadiusTopStart">14dp</item>
-        <item name="boxCornerRadiusTopEnd">14dp</item>
-        <item name="boxCornerRadiusBottomStart">14dp</item>
-        <item name="boxCornerRadiusBottomEnd">14dp</item>
+        <item name="boxCornerRadiusTopStart">@dimen/radius_medium</item>
+        <item name="boxCornerRadiusTopEnd">@dimen/radius_medium</item>
+        <item name="boxCornerRadiusBottomStart">@dimen/radius_medium</item>
+        <item name="boxCornerRadiusBottomEnd">@dimen/radius_medium</item>
     </style>
 
-    <!-- 搜索框：灰色胶囊填充 -->
+    <!-- 搜索框：浅色填充，20dp 圆角 -->
     <style name="Widget.MagicWindow.SearchBar" parent="Widget.Material3.TextInputLayout.FilledBox.Dense">
-        <item name="boxCornerRadiusTopStart">26dp</item>
-        <item name="boxCornerRadiusTopEnd">26dp</item>
-        <item name="boxCornerRadiusBottomStart">26dp</item>
-        <item name="boxCornerRadiusBottomEnd">26dp</item>
-        <item name="boxBackgroundColor">@color/card_bg_high</item>
+        <item name="boxCornerRadiusTopStart">20dp</item>
+        <item name="boxCornerRadiusTopEnd">20dp</item>
+        <item name="boxCornerRadiusBottomStart">20dp</item>
+        <item name="boxCornerRadiusBottomEnd">20dp</item>
+        <item name="boxBackgroundColor">@color/surface_soft</item>
         <item name="boxStrokeWidth">0dp</item>
         <item name="boxStrokeWidthFocused">0dp</item>
-        <item name="hintTextColor">@color/text_secondary</item>
+        <item name="hintTextColor">@color/text_tertiary</item>
+        <item name="startIconTint">@color/text_tertiary</item>
     </style>
 
     <!-- ============ 底部弹窗 ============ -->
@@ -200,8 +255,8 @@
 
     <style name="ShapeAppearance.MagicWindow.BottomSheet" parent="">
         <item name="cornerFamily">rounded</item>
-        <item name="cornerSizeTopLeft">24dp</item>
-        <item name="cornerSizeTopRight">24dp</item>
+        <item name="cornerSizeTopLeft">28dp</item>
+        <item name="cornerSizeTopRight">28dp</item>
         <item name="cornerSizeBottomRight">0dp</item>
         <item name="cornerSizeBottomLeft">0dp</item>
     </style>

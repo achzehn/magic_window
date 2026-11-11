@@ -61,7 +61,7 @@
                 android:layout_marginStart="8dp"
                 android:paddingHorizontal="7dp"
                 android:paddingVertical="2dp"
-                android:textSize="10.5sp"
+                android:textSize="11sp"
                 android:maxLines="1"
                 android:visibility="gone" />
         </LinearLayout>

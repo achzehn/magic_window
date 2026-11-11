@@ -31,6 +31,20 @@ object AutoUiCloudInjector {
     @Volatile
     private var lastFingerprint: String? = null
 
+    /** PackageRule 类只需定位一次，避免每次 loadPackage 都 Class.forName */
+    @Volatile
+    private var packageRuleClassRef: Class<*>? = null
+
+    /** 云控文件未变化时复用上次解析结果，跳过读盘与 XML 解析 */
+    @Volatile
+    private var baseCached: Map<String, Any> = emptyMap()
+
+    @Volatile
+    private var baseCacheLength = -1L
+
+    @Volatile
+    private var baseCacheMtime = -1L
+
     /** 缓存的解析类与 system rule 实例：配置变更后由 [injectNow] 重新落盘 + 热重载，无需再 hook */
     @Volatile
     private var parsingClassRef: Class<*>? = null
@@ -54,15 +68,26 @@ object AutoUiCloudInjector {
 
         runCatching {
             val systemRuleClass = Reflect.findClass(Constants.CLASS_SYSTEM_AUTO_UI_RULE, pluginClassLoader)
-            val loadPackage = Reflect.method(parsingClass, Constants.M_LOAD_PACKAGE, 1)
-            if (loadPackage.parameterTypes[0] != systemRuleClass) {
-                XLog.e("loadPackage 参数类型不是 MiuiSystemAutoUIRule（实际 ${loadPackage.parameterTypes[0]}），跳过挂钩")
+            // 不硬编码参数个数：旧版 ROM 带 1 个 MiuiSystemAutoUIRule 参数，Android 17（OS4.x）已改为无参。
+            // 优先取能直接拿到规则实例的重载，否则退到参数最少的重载（只注入、不缓存实例）。
+            val loadPkgMethods = Reflect.findMethods(parsingClass, Constants.M_LOAD_PACKAGE)
+            val loadPackage = loadPkgMethods.firstOrNull {
+                it.parameterCount == 1 && it.parameterTypes[0] == systemRuleClass
+            } ?: loadPkgMethods.minByOrNull { it.parameterCount }
+            if (loadPackage == null) {
+                XLog.e("未找到 ${Constants.M_LOAD_PACKAGE}，跳过 autoui 挂钩")
                 return
+            }
+            val ruleArgIndex = if (loadPackage.parameterCount == 1 &&
+                loadPackage.parameterTypes[0] == systemRuleClass
+            ) 0 else -1
+            if (ruleArgIndex < 0) {
+                XLog.i("${Constants.M_LOAD_PACKAGE} 无规则参数（${loadPackage.parameterCount} 参），仅注入、不缓存实例")
             }
             xposed.hook(loadPackage).setId("autoui_loadPackage")
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                 .intercept(Hooker { chain ->
-                    val rule = chain.getArg(0)
+                    val rule = if (ruleArgIndex >= 0) chain.getArg(ruleArgIndex) else null
                     if (rule != null) systemRuleRef = rule
                     // before：先落盘再抬高版本，系统紧接着的读取就会走云控文件
                     val injected = inject(parsingClass, systemServerClassLoader)
@@ -120,12 +145,12 @@ object AutoUiCloudInjector {
         }
         emptyLogged = false
 
-        val packageRuleClass = runCatching {
+        val packageRuleClass = packageRuleClassRef ?: runCatching {
             Reflect.findClass(Constants.CLASS_AUTO_UI_PACKAGE_RULE, systemServerClassLoader)
         }.getOrElse {
             XLog.e("未找到 PackageRule", it)
             return false
-        }
+        }.also { packageRuleClassRef = it }
 
         // 读取合并底：云控文件「存在即全量生效、固件 autoui_list.xml 被忽略」
         // （见 MiuiParsingAutoUI.loadPackage 两条路径互斥 return），而
@@ -194,13 +219,16 @@ object AutoUiCloudInjector {
         packageRuleClass: Class<*>
     ): Map<String, Any> {
         if (!cloudFile.canRead()) return emptyMap()
+        // 文件未变化（长度 + 修改时间一致）直接复用上次解析结果，跳过读盘与 XML 解析
+        val len = cloudFile.length()
+        val mtime = cloudFile.lastModified()
+        if (len == baseCacheLength && mtime == baseCacheMtime) return baseCached
         val raw = runCatching { cloudFile.readText() }.getOrDefault("")
         val table = CloudXmlCodec.parse(raw)
         if (table == null) {
             XLog.e("${cloudFile.name} 解析失败（文件可能损坏），本轮以空底表注入")
             return emptyMap()
         }
-        if (table.isEmpty()) return emptyMap()
         val result = HashMap<String, Any>(table.size)
         table.forEach { (pkg, attrs) ->
             runCatching {
@@ -216,6 +244,9 @@ object AutoUiCloudInjector {
                 )
             }.onFailure { XLog.e("重建云控条目失败：$pkg", it) }
         }
+        baseCached = result
+        baseCacheLength = len
+        baseCacheMtime = mtime
         return result
     }
 

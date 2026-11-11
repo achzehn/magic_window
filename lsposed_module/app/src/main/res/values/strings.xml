@@ -88,6 +88,7 @@
 
     <!-- MCP 调试服务器 -->
     <string name="mcp_title">AI 调试服务（MCP）</string>
+    <string name="mcp_state_title">服务状态</string>
     <string name="mcp_desc">在局域网开放一个 MCP 服务器，电脑上的 AI 模型可以读写本模块的规则、抓取应用页面，辅助调试横屏适配。</string>
     <string name="mcp_running">已开启</string>
     <string name="mcp_stopped">未开启</string>
@@ -214,7 +215,6 @@
     <string name="ai_model_output_tokens">输出 Token</string>
     <string name="ai_model_temperature">Temperature</string>
     <string name="ai_model_top_p">Top P</string>
-    <string name="ai_model_top_k">Top K</string>
 
     <!-- AI 页面推荐 -->
     <string name="ai_suggest_pages">AI 推荐页面</string>

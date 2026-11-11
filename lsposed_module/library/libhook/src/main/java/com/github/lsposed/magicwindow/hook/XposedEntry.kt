@@ -1,6 +1,7 @@
 package com.github.lsposed.magicwindow.hook
 
 import android.util.Log
+import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface
 
@@ -17,26 +18,18 @@ class XposedEntry : XposedModule() {
 
     override fun onModuleLoaded(param: XposedModuleInterface.ModuleLoadedParam) {
         XLog.attach(this)
-        log(Log.INFO, TAG, "模块已加载 | 进程=${param.processName} | 框架=$frameworkName " +
+        // libxposed 的 log 必须 tag=null，自定义 tag 会被框架过滤、管理器看不到输出
+        log(Log.INFO, null, "模块已加载 | 进程=${param.processName} | 框架=$frameworkName " +
             "$frameworkVersion | API=$apiVersion")
     }
 
     override fun onSystemServerStarting(param: XposedModuleInterface.SystemServerStartingParam) {
+        if (frameworkProperties and XposedInterface.PROP_CAP_SYSTEM == 0L) {
+            XLog.e("框架不具备 system 能力（PROP_CAP_SYSTEM=0），跳过注入")
+            return
+        }
         XLog.i("注入 system_server")
         runCatching { SystemServerHooks.install(this, param.classLoader) }
             .onFailure { XLog.e("system_server 注入失败", it) }
-    }
-
-    /**
-     * 热重载未启用（`module.prop` 不声明 `autoHotReload`）：本模块的钩子只在 system_server 启动时
-     * 安装一次，重新执行会与已缓存的插件实例/云控状态错位，因此显式拒绝。
-     */
-    override fun onHotReloading(param: XposedModuleInterface.HotReloadingParam): Boolean {
-        XLog.i("收到热重载请求，本模块不支持，已忽略")
-        return false
-    }
-
-    private companion object {
-        const val TAG = "MagicWindow"
     }
 }

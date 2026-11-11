@@ -8,6 +8,7 @@ import com.github.lsposed.magicwindow.hook.RuleStore
 import com.github.lsposed.magicwindow.hook.XLog
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedInterface.Hooker
+import io.github.libxposed.api.XposedInterface.HookHandle
 import java.io.File
 
 /**
@@ -49,6 +50,18 @@ object EmbeddedFixedCloudInjector {
     private var injectPending = false
 
     private val injectLock = Any()
+
+    /**
+     * 捕获宿主实例用的钩子：拿到实例后立即摘除，避免后续每次读规则都白付一次拦截开销。
+     * embedding / fixed 各自独立，分别摘除。
+     */
+    private val embCaptureHooks = java.util.Collections.synchronizedList(mutableListOf<HookHandle>())
+    private val fixCaptureHooks = java.util.Collections.synchronizedList(mutableListOf<HookHandle>())
+
+    private fun dropHooks(hooks: MutableList<HookHandle>) {
+        val list = synchronized(hooks) { hooks.toList().also { hooks.clear() } }
+        list.forEach { runCatching { it.unhook() } }
+    }
 
     /** 触发异步注入（拿到实例后立即返回，不阻塞系统启动） */
     private fun injectAsync() {
@@ -111,7 +124,7 @@ object EmbeddedFixedCloudInjector {
             val loadPackage = Reflect.findMethods(parsingClass, "loadPackage")
                 .minByOrNull { it.parameterCount }
                 ?: throw NoSuchMethodException("${parsingClass.name}#loadPackage")
-            xposed.hook(loadPackage).setId("embedding_loadPackage")
+            val handle = xposed.hook(loadPackage).setId("embedding_loadPackage")
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                 .intercept(Hooker { chain ->
                     val result = chain.proceed()
@@ -121,12 +134,15 @@ object EmbeddedFixedCloudInjector {
                         }.getOrNull()
                         if (er != null) {
                             embeddedRule = er
+                            // 实例已缓存，摘钩避免后续每次读规则都白付拦截开销
+                            dropHooks(embCaptureHooks)
                             // 异步注入，避免阻塞系统启动
                             injectAsync()
                         }
                     }
                     result
                 })
+            embCaptureHooks += handle
             XLog.i("已挂钩 MiuiParsingEmbeddedRule.loadPackage")
         }.onFailure { XLog.e("挂钩 embedding 云控注入失败", it) }
     }
@@ -179,8 +195,10 @@ object EmbeddedFixedCloudInjector {
             val parsingClass = Reflect.findClass(
                 "com.android.server.wm.MiuiParsingFixedOrientationRule", cl
             )
-            val loadLocal = Reflect.method(parsingClass, "loadLocalFixOrientationRuleXML", 0)
-            xposed.hook(loadLocal).setId("fixed_loadLocalRule")
+            val loadLocal = Reflect.findMethods(parsingClass, "loadLocalFixOrientationRuleXML")
+                .minByOrNull { it.parameterCount }
+                ?: throw NoSuchMethodException("${parsingClass.name}#loadLocalFixOrientationRuleXML")
+            val handle = xposed.hook(loadLocal).setId("fixed_loadLocalRule")
                 .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                 .intercept(Hooker { chain ->
                     val result = chain.proceed()
@@ -190,12 +208,15 @@ object EmbeddedFixedCloudInjector {
                         }.getOrNull()
                         if (fc != null) {
                             fixedController = fc
+                            // 实例已缓存，摘钩避免后续每次读规则都白付拦截开销
+                            dropHooks(fixCaptureHooks)
                             // 异步注入，避免阻塞系统启动
                             injectAsync()
                         }
                     }
                     result
                 })
+            fixCaptureHooks += handle
             XLog.i("已挂钩 MiuiParsingFixedOrientationRule.loadLocalFixOrientationRuleXML")
         }.onFailure { XLog.e("挂钩 fixed 云控注入失败", it) }
     }

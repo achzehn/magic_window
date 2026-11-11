@@ -19,6 +19,11 @@ object ConfigRepository {
 
     private lateinit var prefs: SharedPreferences
 
+    /** 持久化/推送专用单线程：commit 与跨进程写不能在 UI 线程执行，且需按调用顺序落盘 */
+    private val io = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "mw-config-io").apply { isDaemon = true }
+    }
+
     private val rules = LinkedHashMap<String, AppRule>()
 
     fun init(context: Context) {
@@ -73,13 +78,16 @@ object ConfigRepository {
 
     private fun persistRules() {
         val encoded = synchronized(rules) { RuleCodec.encodeRules(rules.values) }
-        val ok = prefs.edit().putString(Constants.KEY_RULES, encoded).commit()
-        if (!ok) {
-            // commit 失败仍推送会让 hook 侧生效一份与界面不一致的配置，状态分叉且无从察觉
-            android.util.Log.w("ConfigRepository", "规则持久化失败（commit 返回 false），跳过推送 hook 侧")
-            return
+        // commit（本地 + 跨进程）在调用方线程同步执行会阻塞 UI，统一交给单个后台线程按序执行
+        io.execute {
+            val ok = prefs.edit().putString(Constants.KEY_RULES, encoded).commit()
+            if (!ok) {
+                // commit 失败仍推送会让 hook 侧生效一份与界面不一致的配置，状态分叉且无从察觉
+                android.util.Log.w("ConfigRepository", "规则持久化失败（commit 返回 false），跳过推送 hook 侧")
+                return@execute
+            }
+            pushEncoded(encoded)
         }
-        pushToHook()
     }
 
     /**
@@ -90,6 +98,10 @@ object ConfigRepository {
      */
     fun pushToHook() {
         val encoded = synchronized(rules) { RuleCodec.encodeRules(rules.values) }
+        io.execute { pushEncoded(encoded) }
+    }
+
+    private fun pushEncoded(encoded: String) {
         if (!XposedServiceBridge.writeRules(encoded)) {
             android.util.Log.i("ConfigRepository", "框架服务未就绪，规则仅落本地，待绑定后补推")
         }

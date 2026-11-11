@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 7 寸竖屏 / 小平板：内容收窄，应用列表双列 -->
-    <dimen name="page_padding">56dp</dimen>
+    <dimen name="page_padding">40dp</dimen>
+    <dimen name="card_gap">16dp</dimen>
 
-    <dimen name="list_edge">50dp</dimen>
-    <dimen name="item_margin_h">6dp</dimen>
-    <dimen name="item_margin_v">5dp</dimen>
-    <dimen name="item_padding_h">14dp</dimen>
+    <dimen name="list_edge">32dp</dimen>
+    <dimen name="item_margin_h">8dp</dimen>
+    <dimen name="item_margin_v">6dp</dimen>
+    <dimen name="item_padding_h">18dp</dimen>
 
-    <dimen name="chat_bubble_user">400dp</dimen>
-    <dimen name="chat_bubble_ai">460dp</dimen>
+    <dimen name="chat_bubble_user">420dp</dimen>
+    <dimen name="chat_bubble_ai">500dp</dimen>
 </resources>

@@ -75,7 +75,6 @@ class AiClient(private val context: Context) {
             put("max_tokens", cfg.maxOutputTokens)
             put("temperature", cfg.temperature.toDouble())
             put("top_p", cfg.topP.toDouble())
-            put("top_k", cfg.topK)
             put("messages", JSONArray().apply {
                 messages.forEach { msg ->
                     put(JSONObject().apply {

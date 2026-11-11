@@ -26,8 +26,8 @@
         android:layout_weight="1"
         android:clipToPadding="false"
         android:paddingHorizontal="@dimen/page_padding"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp" />
+        android:paddingTop="@dimen/space_2"
+        android:paddingBottom="@dimen/space_2" />
 
     <!-- 工具执行状态：胶囊内嵌状态点，与输入区同宽留白 -->
     <TextView
@@ -36,14 +36,14 @@
         android:layout_height="wrap_content"
         android:layout_gravity="center_horizontal"
         android:layout_marginHorizontal="@dimen/page_padding"
-        android:layout_marginBottom="4dp"
-        android:paddingHorizontal="12dp"
-        android:paddingVertical="5dp"
-        android:textSize="11sp"
-        android:textColor="?attr/colorPrimary"
+        android:layout_marginBottom="@dimen/space_1"
         android:background="@drawable/bg_chip"
-        android:maxLines="2"
         android:ellipsize="end"
+        android:maxLines="2"
+        android:paddingHorizontal="@dimen/space_3"
+        android:paddingVertical="6dp"
+        android:textColor="?attr/colorPrimary"
+        android:textSize="12sp"
         android:visibility="gone" />
 
     <!-- 附件预览区 -->
@@ -51,41 +51,39 @@
         android:id="@+id/rvAttachments"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingHorizontal="12dp"
         android:orientation="horizontal"
+        android:paddingHorizontal="@dimen/page_padding"
         android:visibility="gone" />
 
-    <!-- 输入区域 -->
+    <!-- 输入区域：悬浮卡片，圆角 24dp -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginHorizontal="@dimen/space_3"
+        android:layout_marginBottom="@dimen/space_3"
+        android:background="@drawable/bg_input_panel"
+        android:elevation="2dp"
         android:orientation="vertical"
-        android:background="@color/card_bg">
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/divider" />
+        android:paddingHorizontal="@dimen/space_2"
+        android:paddingTop="@dimen/space_2"
+        android:paddingBottom="@dimen/space_1">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
             android:gravity="bottom|center_horizontal"
-            android:paddingHorizontal="@dimen/page_padding"
-            android:paddingTop="10dp"
-            android:paddingBottom="12dp">
+            android:orientation="horizontal">
 
-            <!-- 附件按钮 -->
+            <!-- 附件按钮：48dp 热区 -->
             <ImageButton
                 android:id="@+id/btnAttach"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="@dimen/min_touch"
+                android:layout_height="@dimen/min_touch"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@drawable/ic_add"
-                app:tint="?attr/colorOnSurfaceVariant"
                 android:contentDescription="@string/ai_attach"
-                android:scaleType="centerInside" />
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_add"
+                app:tint="?attr/colorOnSurfaceVariant" />
 
             <!-- 输入框 -->
             <com.google.android.material.textfield.TextInputEditText
@@ -93,46 +91,46 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:layout_marginStart="8dp"
                 android:background="@drawable/bg_input"
                 android:hint="@string/ai_input_hint"
+                android:inputType="textMultiLine"
                 android:maxLines="6"
                 android:minLines="1"
-                android:inputType="textMultiLine"
-                android:textSize="15sp"
-                android:paddingHorizontal="16dp"
-                android:paddingVertical="10dp" />
+                android:paddingHorizontal="@dimen/space_4"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp"
+                android:textSize="15sp" />
 
-            <!-- 发送按钮 -->
+            <!-- 发送按钮：48dp 触摸热区 -->
             <com.google.android.material.floatingactionbutton.FloatingActionButton
                 android:id="@+id/fabSend"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:src="@drawable/ic_send"
+                android:layout_marginStart="@dimen/space_1"
+                android:layout_marginBottom="2dp"
                 android:contentDescription="@string/ai_send"
+                android:src="@drawable/ic_send"
+                app:fabCustomSize="@dimen/min_touch"
                 app:fabSize="mini"
-                app:fabCustomSize="40dp"
                 app:maxImageSize="20dp" />
         </LinearLayout>
 
-        <!-- 模型切换下沉到输入区下一行，主行只留「附件 / 输入 / 发送」三个核心动作 -->
+        <!-- 模型切换：视觉为小胶囊，触摸高度仍为 48dp -->
         <TextView
             android:id="@+id/btnModelSwitch"
             android:layout_width="wrap_content"
-            android:layout_height="28dp"
-            android:layout_marginStart="@dimen/page_padding"
-            android:layout_marginBottom="8dp"
-            android:paddingHorizontal="10dp"
-            android:gravity="center"
-            android:textSize="11sp"
-            android:textColor="?attr/colorPrimary"
+            android:layout_height="@dimen/min_touch"
+            android:layout_marginStart="6dp"
             android:background="@drawable/bg_chip"
-            android:drawableStart="@drawable/ic_tune"
-            android:drawablePadding="4dp"
+            android:contentDescription="@string/ai_model_switch"
+            android:drawablePadding="@dimen/space_1"
+            app:drawableStartCompat="@drawable/ic_tune"
+            android:gravity="center"
+            android:maxWidth="240dp"
+            android:paddingHorizontal="@dimen/space_3"
             android:singleLine="true"
-            android:maxWidth="220dp"
-            android:contentDescription="@string/ai_model_switch" />
+            android:textColor="?attr/colorPrimary"
+            android:textSize="12sp" />
     </LinearLayout>
 
 </LinearLayout>

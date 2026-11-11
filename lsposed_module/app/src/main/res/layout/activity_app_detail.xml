@@ -19,22 +19,25 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            app:navigationIcon="@drawable/ic_back" />
+            android:background="@android:color/transparent"
+            app:navigationIcon="@drawable/ic_back"
+            app:titleTextAppearance="@style/Text.MagicWindow.CardTitle" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:clipToPadding="false"
-        android:paddingBottom="96dp"
+        android:paddingBottom="112dp"
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <LinearLayout
+            android:id="@+id/contentRoot"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingHorizontal="@dimen/page_padding"
-            android:paddingTop="4dp">
+            android:paddingTop="@dimen/space_2">
 
             <!-- 应用信息 + 总启用 -->
             <com.google.android.material.card.MaterialCardView
@@ -50,8 +53,8 @@
 
                     <ImageView
                         android:id="@+id/icon"
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
                         android:background="@drawable/bg_icon_mask"
                         android:clipToOutline="true"
                         android:contentDescription="@null" />
@@ -59,7 +62,7 @@
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="14dp"
+                        android:layout_marginStart="@dimen/space_4"
                         android:layout_weight="1"
                         android:orientation="vertical">
 
@@ -69,22 +72,25 @@
                             android:layout_height="wrap_content"
                             android:ellipsize="end"
                             android:maxLines="1"
-                            android:textAppearance="@style/Text.MagicWindow.CardTitle" />
+                            android:textColor="@color/text_primary"
+                            android:textSize="19sp"
+                            android:textStyle="bold" />
 
                         <TextView
                             android:id="@+id/tvPkg"
-                            style="@style/Text.MagicWindow.Desc"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
                             android:ellipsize="middle"
-                            android:maxLines="1" />
+                            android:maxLines="1"
+                            style="@style/Text.MagicWindow.Desc" />
                     </LinearLayout>
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/switchEnabled"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp" />
+                        android:layout_marginStart="@dimen/space_2" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -96,7 +102,8 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/card_gap"
                 android:visibility="gone"
-                app:cardBackgroundColor="?attr/colorPrimaryContainer">
+                app:cardBackgroundColor="?attr/colorPrimaryContainer"
+                app:strokeColor="?attr/colorPrimaryContainer">
 
                 <TextView
                     android:id="@+id/tvBuiltin"
@@ -119,6 +126,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center_vertical"
+                    android:minHeight="@dimen/min_touch"
                     android:orientation="horizontal">
 
                     <LinearLayout
@@ -131,22 +139,21 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="@string/force_edit_title"
-                            android:textAppearance="?attr/textAppearanceTitleSmall" />
+                            android:textAppearance="@style/Text.MagicWindow.CardTitle" />
 
                         <TextView
-                            style="@style/Text.MagicWindow.Desc"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
-                            android:text="@string/force_edit_desc" />
+                            android:text="@string/force_edit_desc"
+                            style="@style/Text.MagicWindow.Desc" />
                     </LinearLayout>
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/swForceEdit"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:text="@string/force_edit_unlock" />
+                        android:layout_marginStart="@dimen/space_2" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -172,7 +179,7 @@
                         android:id="@+id/modeGroup"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/row_gap"
+                        android:layout_marginTop="@dimen/space_3"
                         app:selectionRequired="true"
                         app:singleSelection="true">
 
@@ -184,11 +191,10 @@
                             android:layout_weight="1"
                             android:insetLeft="0dp"
                             android:insetRight="0dp"
-                            android:paddingStart="2dp"
-                            android:paddingEnd="2dp"
-                            android:textSize="13sp"
+                            android:paddingStart="0dp"
+                            android:paddingEnd="0dp"
                             android:text="@string/mode_off"
-                            app:textAllCaps="false" />
+                            android:textSize="12sp" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnModeFull"
@@ -198,11 +204,10 @@
                             android:layout_weight="1"
                             android:insetLeft="0dp"
                             android:insetRight="0dp"
-                            android:paddingStart="2dp"
-                            android:paddingEnd="2dp"
-                            android:textSize="13sp"
+                            android:paddingStart="0dp"
+                            android:paddingEnd="0dp"
                             android:text="@string/mode_full"
-                            app:textAllCaps="false" />
+                            android:textSize="12sp" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnModeEmbedding"
@@ -212,11 +217,10 @@
                             android:layout_weight="1"
                             android:insetLeft="0dp"
                             android:insetRight="0dp"
-                            android:paddingStart="2dp"
-                            android:paddingEnd="2dp"
-                            android:textSize="13sp"
+                            android:paddingStart="0dp"
+                            android:paddingEnd="0dp"
                             android:text="@string/mode_embedding"
-                            app:textAllCaps="false" />
+                            android:textSize="12sp" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnModeFixed"
@@ -226,54 +230,56 @@
                             android:layout_weight="1"
                             android:insetLeft="0dp"
                             android:insetRight="0dp"
-                            android:paddingStart="2dp"
-                            android:paddingEnd="2dp"
-                            android:textSize="13sp"
+                            android:paddingStart="0dp"
+                            android:paddingEnd="0dp"
                             android:text="@string/mode_fixed"
-                            app:textAllCaps="false" />
+                            android:textSize="12sp" />
                     </com.google.android.material.button.MaterialButtonToggleGroup>
 
                     <TextView
-                        style="@style/Text.MagicWindow.Desc"
                         android:id="@+id/tvModeDesc"
+                        style="@style/Text.MagicWindow.Desc"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/row_gap" />
+                        android:layout_marginTop="@dimen/space_2" />
 
                     <TextView
                         style="@style/Text.MagicWindow.Desc"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
+                        android:layout_marginTop="@dimen/space_1"
                         android:text="@string/mode_priority_hint" />
 
                     <!-- 简单 / 高级 切换 -->
                     <com.google.android.material.button.MaterialButtonToggleGroup
                         android:id="@+id/detailModeGroup"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_gravity="end"
-                        android:layout_marginTop="@dimen/row_gap"
+                        android:layout_marginTop="@dimen/space_4"
                         app:selectionRequired="true"
                         app:singleSelection="true">
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnDetailSimple"
                             style="?attr/materialButtonOutlinedStyle"
-                            android:layout_width="wrap_content"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:minWidth="88dp"
+                            android:layout_weight="1"
+                            android:insetLeft="0dp"
+                            android:insetRight="0dp"
                             android:text="@string/mode_simple"
-                            app:textAllCaps="false" />
+                            android:textSize="13sp" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnDetailAdvanced"
                             style="?attr/materialButtonOutlinedStyle"
-                            android:layout_width="wrap_content"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:minWidth="88dp"
+                            android:layout_weight="1"
+                            android:insetLeft="0dp"
+                            android:insetRight="0dp"
                             android:text="@string/mode_advanced"
-                            app:textAllCaps="false" />
+                            android:textSize="13sp" />
                     </com.google.android.material.button.MaterialButtonToggleGroup>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -292,58 +298,67 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="@color/card_bg"
+        android:background="@drawable/bg_bottom_bar"
         android:elevation="8dp"
-        android:orientation="vertical">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="@dimen/page_padding"
+        android:paddingTop="@dimen/space_3"
+        android:paddingEnd="@dimen/page_padding"
+        android:paddingBottom="@dimen/space_3">
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/divider" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnReset"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="@dimen/page_padding"
-            android:paddingTop="10dp"
-            android:paddingEnd="@dimen/page_padding"
-            android:paddingBottom="18dp">
+            android:layout_weight="1"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            android:text="@string/action_reset"
+            android:textSize="13sp" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnReset"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/action_reset" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnImport"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_2"
+            android:layout_weight="1"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            android:text="@string/action_import_rule"
+            android:textSize="13sp" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnImport"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="@string/action_import_rule" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnExport"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_2"
+            android:layout_weight="1"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            android:text="@string/action_export_rule"
+            android:textSize="13sp" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnExport"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="@string/action_export_rule" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSave"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="@string/action_save" />
-        </LinearLayout>
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSave"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_2"
+            android:layout_weight="1.15"
+            android:insetLeft="0dp"
+            android:insetRight="0dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            android:text="@string/action_save"
+            android:textSize="13sp" />
     </LinearLayout>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
