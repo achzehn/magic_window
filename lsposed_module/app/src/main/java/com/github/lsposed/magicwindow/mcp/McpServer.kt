@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import com.github.lsposed.magicwindow.common.Constants
 import com.github.lsposed.magicwindow.common.model.AppRule
 import com.github.lsposed.magicwindow.data.ConfigRepository
+import com.github.lsposed.magicwindow.data.MainPageResolver
 import com.github.lsposed.magicwindow.data.RuleDiagnostics
 import com.github.lsposed.magicwindow.data.SystemRuleSource
 import org.json.JSONArray
@@ -335,7 +336,7 @@ object McpServer {
             strSchema(required = listOf("keyword" to "搜索关键词，可以是应用名或包名的一部分"),
                 optional = listOf("limit" to "返回结果数量上限，默认 10")))
         ).put(toolDef(
-            "get_app_activities", "获取指定应用的全部 Activity 页面列表（启动页排最前），用于确定哪些页面参与分屏。",
+            "get_app_activities", "获取指定应用的全部 Activity 页面列表（启动页排最前），用于确定哪些页面参与分屏。返回 recommended_main（推荐主页面类名）与 recommended_source（system/keyword/launcher）。",
             strSchema(required = listOf("package_name" to "应用包名")))
         ).put(toolDef(
             "get_current_rules", "查看当前已配置的所有应用规则（包名/启停/模式）。",
@@ -637,8 +638,12 @@ object McpServer {
         val launcher = runCatching { pm.getLaunchIntentForPackage(pkg)?.component?.className }.getOrNull()
         val names = acts.mapNotNull { it.name }.distinct()
             .sortedWith(compareByDescending<String> { it == launcher }.thenBy { it })
+        // 主页面推荐：系统内置规则优先，其次类名关键词（launcher 常是启动页，仅兜底）
+        val resolved = MainPageResolver.resolve(pkg, names, launcher)
         return JSONObject().put("package_name", pkg)
             .put("launcher", launcher ?: JSONObject.NULL)
+            .put("recommended_main", resolved?.first ?: JSONObject.NULL)
+            .put("recommended_source", resolved?.second ?: JSONObject.NULL)
             .put("activities", JSONArray(names))
     }
 

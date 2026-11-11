@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-      作用域建议（资料评估 6.1）：
-      android  = 系统框架（system_server），横屏规则、平行窗口判定、页面抓取全部在这里完成，必须勾选。
-      本模块自身 = 仅用于回显「已激活」状态与读取自己的配置，不做任何注入。
-      其他任何应用都不需要勾选：不 hook 目标应用进程，避免拖慢应用、也避免被检测。
+      作用域以 META-INF/xposed/scope.list 为准（libxposed 现代 API），
+      此处仅保留给设置页/文档引用的展示文案，两处必须保持一致。
+      system = 系统框架（system_server）：横屏规则、平行窗口判定、页面抓取全部在这里完成，必须勾选，
+               且必须写 system 而不是 android —— 现代 API 下 system_server 的包名为 system。
+      本模块自身不需要注入：激活状态改用 libxposed 服务判断（见 ModuleStatus）。
     -->
     <string-array name="xposed_scope">
-        <item>android</item>
         <item>system</item>
         <item>com.github.lsposed.magicwindow</item>
     </string-array>

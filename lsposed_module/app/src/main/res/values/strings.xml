@@ -195,13 +195,13 @@
     <string name="ai_model_management_desc">配置 API key 添加更多可用模型，预置模型默认使用稳定版本。</string>
     <string name="ai_current_model">当前模型</string>
     <string name="ai_model_basic">基础配置</string>
-    <string name="ai_model_api_base_hint">API 请求地址（如 https://api.openai.com/v1）</string>
+    <string name="ai_model_api_base_hint">API 请求地址（如 https://api.openai.com/v1 或 http://192.168.1.5:11434/v1）</string>
     <string name="ai_model_id_hint">模型 ID（如 gpt-4o-mini）</string>
     <string name="ai_model_name_hint">模型显示名称（选填）</string>
-    <string name="ai_model_key_hint">API 密钥</string>
+    <string name="ai_model_key_hint">API 密钥（本地模型可留空）</string>
     <string name="ai_model_test">测试连通性</string>
     <string name="ai_model_testing">测试中…</string>
-    <string name="ai_model_test_empty">请先填写 API 地址、模型 ID 和密钥</string>
+    <string name="ai_model_test_empty">请先填写 API 地址和模型 ID</string>
     <string name="ai_model_test_required">请先点击「测试连通性」，测试通过后才能保存</string>
     <string name="ai_model_test_changed">配置已变更，请重新测试连通性</string>
     <string name="ai_model_advanced">高级配置</string>

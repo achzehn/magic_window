@@ -12,30 +12,26 @@
     <!-- 界面交互震动反馈（滑块挡位、开关切换等） -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!--
+        usesCleartextTraffic：本地/局域网模型服务（Ollama、LM Studio、vLLM 等）普遍只提供
+        http:// 明文接口，targetSdk >= 28 默认禁明文会导致请求直接抛
+        "Cleartext HTTP traffic not permitted"，因此显式放开。
+    -->
     <application
         android:name=".MagicWindowApp"
         android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:description="@string/xposed_description"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.MagicWindow"
         tools:ignore="MissingApplicationIcon">
 
-        <meta-data
-            android:name="xposedmodule"
-            android:value="true" />
-        <meta-data
-            android:name="xposeddescription"
-            android:value="@string/xposed_description" />
-        <meta-data
-            android:name="xposedminversion"
-            android:value="102" />
-        <meta-data
-            android:name="xposedsharedprefs"
-            android:value="true" />
-        <meta-data
-            android:name="xposedscope"
-            android:resource="@array/xposed_scope" />
+        <!--
+            libxposed 现代 API：模块标识不再使用任何 xposed* meta-data，
+            模块名取 android:label、模块描述取 android:description，
+            入口与作用域见 src/main/resources/META-INF/xposed/。
+        -->
 
         <activity
             android:name=".ui.MainActivity"
@@ -43,6 +39,7 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+                <!-- LSPosed 管理器「打开」按钮据此定位模块设置页，现代 API 仍需保留 -->
                 <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
             </intent-filter>
         </activity>

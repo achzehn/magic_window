@@ -9,19 +9,10 @@ package com.github.lsposed.magicwindow.common
 object Constants {
 
     const val MODULE_PACKAGE = "com.github.lsposed.magicwindow"
-    const val SYSTEM_PACKAGE = "android"
 
-    /** 模块配置文件名（LSPosed `xposedsharedprefs` 托管，system_server 侧用 XSharedPreferences 读） */
+    /** 模块配置组名（LSPosed 远端首选项：App 侧经 XposedService 写，hook 侧经 XposedInterface 读） */
     const val PREFS_NAME = "magic_window_config"
     const val KEY_RULES = "app_rules"
-
-    // ── 配置热更新通知 ──
-    // App 保存后显式发广播通知 hook 侧重读；system_server 侧在接收端用 Intent.getSentFromPackage 校验发送者
-    const val ACTION_CONFIG_CHANGED = "com.github.lsposed.magicwindow.ACTION_CONFIG_CHANGED"
-
-    // ── 模块自身：激活状态回显 ──
-    const val CLASS_MODULE_STATUS = "com.github.lsposed.magicwindow.ModuleStatus"
-    const val M_IS_MODULE_ACTIVE = "isModuleActive"
 
     // ── 4.8.4 三个 SystemProperty 总开关 ──
     const val PROP_ACTIVITY_EMBEDDING = "ro.config.miui_activity_embedding_enable"

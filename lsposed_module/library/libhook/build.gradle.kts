@@ -28,5 +28,6 @@ android {
 
 dependencies {
     api(project(":library:common"))
-    compileOnly(libs.xposed.api)
+    // 由 LSPosed 框架在运行时注入，仅编译期可见
+    compileOnly(libs.libxposed.api)
 }

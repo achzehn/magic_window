@@ -30,6 +30,7 @@ import com.github.lsposed.magicwindow.R
 import com.github.lsposed.magicwindow.common.model.AppRule
 import com.github.lsposed.magicwindow.common.model.WindowMode
 import com.github.lsposed.magicwindow.data.ConfigRepository
+import com.github.lsposed.magicwindow.data.MainPageResolver
 import com.github.lsposed.magicwindow.data.SystemRuleSource
 import com.github.lsposed.magicwindow.ai.ModelManager
 import com.github.lsposed.magicwindow.ai.AiClient
@@ -846,9 +847,19 @@ class AppDetailActivity : AppCompatActivity() {
         til.findViewById<TextInputEditText>(R.id.et)?.text?.toString().orEmpty()
 
     /**
+     * 该入口字段是否属于「分屏页面」类，需要按主页面（左栏）排序。
+     * 只有 activityRule / splitPairRule / middleRule 涉及左右分栏的主页面概念；
+     * forcePortraitActivity、relaunchRule 等字段无关，仍按 launcher 排序。
+     */
+    private fun isMainPageField(fieldContext: String): Boolean = when (fieldContext) {
+        "activityRule", "splitPairRule", "middleRule" -> true
+        else -> false
+    }
+
+    /**
      * 抓取目标应用的页面（Activity）列表并多选填充。
      * LIST 填充把选中的类名用英文逗号并列；PAIR 填充写成「页面:*」（配对规则的常用写法）。
-     * 支持按类名/功能名实时筛选；启动页标为「★ 主界面」置顶；每行小字显示页面功能名。
+     * 支持按类名/功能名实时筛选；推荐的主页面（左栏）标为「★」置顶；每行小字显示页面功能名。
      */
     /**
      * 显示页面抓取对话框。
@@ -877,11 +888,20 @@ class AppDetailActivity : AppCompatActivity() {
         // 加载本地缓存的中文描述
         val cachedLabels = ActivityLabelCache.getAllForPackage(this@AppDetailActivity, pkg)
 
+        // 主页面判定：分屏类字段（activityRule/splitPairRule）用 MainPageResolver 推荐的主页面，
+        // 其余字段（强制竖屏、relaunchRule 等）没有「主页面」概念，仍按 launcher 排序
+        val allNames = acts.mapNotNull { it.name }.distinct()
+        val pickerMain = if (isMainPageField(fieldContext)) {
+            MainPageResolver.resolve(pkg, allNames, launcher)?.first
+        } else {
+            launcher
+        }
+
         val items = acts.mapNotNull { a ->
             a.name?.let { name ->
                 val label = runCatching { a.loadLabel(pm).toString() }.getOrDefault("")
                 val zhDesc = cachedLabels[name] ?: ""
-                Item(name, label, name == launcher, zhDesc)
+                Item(name, label, name == pickerMain, zhDesc)
             }
         }.distinctBy { it.name }
             .sortedWith(compareByDescending<Item> { it.isMain }.thenBy { it.name })
@@ -1250,10 +1270,12 @@ class AppDetailActivity : AppCompatActivity() {
         // 角色缓存：命中则直接复用上次 AI 判定，只对缺失页面发起增量请求
         val cachedRoles = PageRoleCache.getAllForPackage(this, pkg)
         val roleMap = HashMap(cachedRoles)
+        // 主页面判定：placeholder 就是「主页面:占位页面」，用 MainPageResolver 推荐的主页面排序
+        val pickerMain = MainPageResolver.resolve(pkg, acts.mapNotNull { it.name }.distinct(), launcher)?.first
         val items = acts.mapNotNull { a ->
             a.name?.let { name ->
                 val label = runCatching { a.loadLabel(pm).toString() }.getOrDefault("")
-                PairItem(name, label, name == launcher, cachedLabels[name] ?: "")
+                PairItem(name, label, name == pickerMain, cachedLabels[name] ?: "")
             }
         }.distinctBy { it.name }
             .sortedWith(compareByDescending<PairItem> { it.isMain }.thenBy { it.name })
@@ -1893,7 +1915,7 @@ class AppDetailActivity : AppCompatActivity() {
             "user",
             buildString {
                 appendLine("分析 $pkg 的 Activity，为每个页面标注角色。")
-                appendLine("主页面：启动后首先进入的核心首页（通常是标 ★ 的启动页）")
+                appendLine("主页面：启动后首先进入的核心首页，通常是列表/信息流页（界面中标 ★ 的即为推荐项）")
                 appendLine("占位页面：适合右栏默认显示，优先内容简单的列表页/引导页/空白页；登录、验证码、网页验证类不要选")
                 appendLine("其他：其余页面")
                 appendLine("页面列表：")

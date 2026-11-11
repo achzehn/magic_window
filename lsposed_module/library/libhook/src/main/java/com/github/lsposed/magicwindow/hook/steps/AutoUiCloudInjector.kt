@@ -2,10 +2,11 @@ package com.github.lsposed.magicwindow.hook.steps
 
 import com.github.lsposed.magicwindow.common.Constants
 import com.github.lsposed.magicwindow.common.model.CloudXmlCodec
+import com.github.lsposed.magicwindow.hook.Reflect
 import com.github.lsposed.magicwindow.hook.RuleStore
 import com.github.lsposed.magicwindow.hook.XLog
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedHelpers
+import io.github.libxposed.api.XposedInterface
+import io.github.libxposed.api.XposedInterface.Hooker
 
 /**
  * 第二步：autoui 云控注入（方案 C，资料评估 4.6.3 / 4.6.4 / 4.9.1 / 4.9.3 / 4.9.4 / 4.10.3）。
@@ -21,8 +22,6 @@ import de.robv.android.xposed.XposedHelpers
  * 完全旁路只读的 `/product/etc/autoui_list.xml`。
  */
 object AutoUiCloudInjector {
-
-    private const val EXTRA_INJECTED = "magic_window_autoui_injected"
 
     /** 「无规则可注入」只提示一次，避免刷满日志 */
     @Volatile
@@ -42,11 +41,11 @@ object AutoUiCloudInjector {
     @Volatile
     private var systemServerCl: ClassLoader? = null
 
-    fun apply(pluginClassLoader: ClassLoader, systemServerClassLoader: ClassLoader) {
+    fun apply(xposed: XposedInterface, pluginClassLoader: ClassLoader, systemServerClassLoader: ClassLoader) {
         systemServerCl = systemServerClassLoader
 
         val parsingClass = runCatching {
-            XposedHelpers.findClass(Constants.CLASS_PARSING_AUTO_UI, pluginClassLoader)
+            Reflect.findClass(Constants.CLASS_PARSING_AUTO_UI, pluginClassLoader)
         }.getOrElse {
             XLog.e("未找到 MiuiParsingAutoUI，跳过 autoui 注入", it)
             return
@@ -54,28 +53,29 @@ object AutoUiCloudInjector {
         parsingClassRef = parsingClass
 
         runCatching {
-            XposedHelpers.findAndHookMethod(
-                parsingClass, Constants.M_LOAD_PACKAGE,
-                XposedHelpers.findClass(Constants.CLASS_SYSTEM_AUTO_UI_RULE, pluginClassLoader),
-                object : XC_MethodHook() {
-                    override fun beforeHookedMethod(param: MethodHookParam) {
-                        param.args.getOrNull(0)?.let { systemRuleRef = it }
-                        if (inject(parsingClass, systemServerClassLoader)) {
-                            param.setObjectExtra(EXTRA_INJECTED, true)
-                        }
-                    }
-
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        // 只有本次确实落盘成功才热重载，避免每次 loadPackage 都刷日志
-                        if (param.getObjectExtra(EXTRA_INJECTED) != true) return
-                        val rule = param.args.getOrNull(0) ?: return
+            val systemRuleClass = Reflect.findClass(Constants.CLASS_SYSTEM_AUTO_UI_RULE, pluginClassLoader)
+            val loadPackage = Reflect.method(parsingClass, Constants.M_LOAD_PACKAGE, 1)
+            if (loadPackage.parameterTypes[0] != systemRuleClass) {
+                XLog.e("loadPackage 参数类型不是 MiuiSystemAutoUIRule（实际 ${loadPackage.parameterTypes[0]}），跳过挂钩")
+                return
+            }
+            xposed.hook(loadPackage).setId("autoui_loadPackage")
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                .intercept(Hooker { chain ->
+                    val rule = chain.getArg(0)
+                    if (rule != null) systemRuleRef = rule
+                    // before：先落盘再抬高版本，系统紧接着的读取就会走云控文件
+                    val injected = inject(parsingClass, systemServerClassLoader)
+                    val result = chain.proceed()
+                    // after：只有本次确实落盘成功才热重载，避免每次 loadPackage 都刷日志
+                    if (injected && rule != null) {
                         runCatching {
-                            XposedHelpers.callMethod(rule, Constants.M_UPDATE_FROM_CLOUD_FILE)
+                            Reflect.call(rule, Constants.M_UPDATE_FROM_CLOUD_FILE)
                             XLog.i("已触发 updateAutoUIConfigFromCloudFile")
                         }.onFailure { XLog.e("触发热重载失败", it) }
                     }
-                }
-            )
+                    result
+                })
             XLog.i("已挂钩 MiuiParsingAutoUI.loadPackage")
         }.onFailure { XLog.e("挂钩 loadPackage 失败", it) }
     }
@@ -87,7 +87,7 @@ object AutoUiCloudInjector {
         runCatching {
             if (inject(parsingClass, cl)) {
                 systemRuleRef?.let { rule ->
-                    XposedHelpers.callMethod(rule, Constants.M_UPDATE_FROM_CLOUD_FILE)
+                    Reflect.call(rule, Constants.M_UPDATE_FROM_CLOUD_FILE)
                     XLog.i("配置变更：已触发 autoui 热重载")
                 }
             }
@@ -121,7 +121,7 @@ object AutoUiCloudInjector {
         emptyLogged = false
 
         val packageRuleClass = runCatching {
-            XposedHelpers.findClass(Constants.CLASS_AUTO_UI_PACKAGE_RULE, systemServerClassLoader)
+            Reflect.findClass(Constants.CLASS_AUTO_UI_PACKAGE_RULE, systemServerClassLoader)
         }.getOrElse {
             XLog.e("未找到 PackageRule", it)
             return false
@@ -147,7 +147,7 @@ object AutoUiCloudInjector {
             runCatching {
                 // 7 参：pkg, enable, activityRule, skippedActivityRule,
                 //       versionCode, optimizeWebView, skippedAppConfigChange
-                map[rule.packageName] = XposedHelpers.newInstance(
+                map[rule.packageName] = newPackageRule(
                     packageRuleClass,
                     rule.packageName,
                     "true",
@@ -162,7 +162,7 @@ object AutoUiCloudInjector {
         if (map.isEmpty()) return false
 
         runCatching {
-            XposedHelpers.callStaticMethod(
+            Reflect.callStatic(
                 parsingClass, Constants.M_UPDATE_CLOUD_CONFIG_FILE,
                 Constants.CLOUD_AUTO_UI_FILE, map
             )
@@ -176,6 +176,13 @@ object AutoUiCloudInjector {
         raiseVersion(parsingClass, version, log = true)
         return true
     }
+
+    /**
+     * 构造系统 `PackageRule`（7 参构造，部分重载全部为 String）。
+     * 直接反射构造：成员并非 public，`setAccessible(true)` 即可。
+     */
+    private fun newPackageRule(clazz: Class<*>, vararg args: Any?): Any =
+        Reflect.constructor(clazz, args.size).newInstance(*args)
 
     /**
      * 读取合并底：把云控文件里已存在的扁平 `<package .../>` 条目重建为 PackageRule。
@@ -197,7 +204,7 @@ object AutoUiCloudInjector {
         val result = HashMap<String, Any>(table.size)
         table.forEach { (pkg, attrs) ->
             runCatching {
-                result[pkg] = XposedHelpers.newInstance(
+                result[pkg] = newPackageRule(
                     packageRuleClass,
                     pkg,
                     attrs["enable"],
@@ -232,7 +239,7 @@ object AutoUiCloudInjector {
     /** 抬高云控版本号。该字段每次开机归零，所以每轮都要确保它是高的 */
     private fun raiseVersion(parsingClass: Class<*>, version: Long, log: Boolean) {
         runCatching {
-            XposedHelpers.setStaticLongField(
+            Reflect.setStaticLongField(
                 parsingClass, Constants.F_LAST_CLOUD_CONFIG_VERSION, version
             )
             if (log) XLog.i("已抬高 mLastCloudConfigVersion=$version")

@@ -1,10 +1,12 @@
 package com.github.lsposed.magicwindow.hook.steps
 
 import com.github.lsposed.magicwindow.common.Constants
+import com.github.lsposed.magicwindow.hook.Reflect
 import com.github.lsposed.magicwindow.hook.XLog
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedBridge
-import de.robv.android.xposed.XposedHelpers
+import io.github.libxposed.api.XposedInterface
+import io.github.libxposed.api.XposedInterface.HookHandle
+import io.github.libxposed.api.XposedInterface.Hooker
+import java.lang.reflect.Executable
 
 /**
  * 第一步：捕获 HyperOS Stub 插件的 ClassLoader（资料评估 6.4-1）。
@@ -29,7 +31,7 @@ object PluginClassLoaderCatcher {
      * 一旦拿到 ClassLoader 就必须全部摘掉，否则会一直白白付出 hook 的调用开销，拖慢开机。
      */
     private val catcherHooks =
-        java.util.Collections.synchronizedList(mutableListOf<XC_MethodHook.Unhook>())
+        java.util.Collections.synchronizedList(mutableListOf<HookHandle>())
 
     /** 注册一个「拿到插件 ClassLoader 后执行」的回调，可能同步立即执行。 */
     @Synchronized
@@ -39,45 +41,56 @@ object PluginClassLoaderCatcher {
         else pending += action
     }
 
-    fun start(systemServerClassLoader: ClassLoader) {
+    fun start(xposed: XposedInterface, systemServerClassLoader: ClassLoader) {
         // 策略 1
         if (probe(systemServerClassLoader)) {
             publish(systemServerClassLoader, "system_server ClassLoader 直接可见")
             return
         }
         // 策略 2 / 3
-        hookAllMethods(systemServerClassLoader, Constants.CLASS_EWS_IMPL_COLLECTOR)
-        hookAllMethods(systemServerClassLoader, Constants.CLASS_EWS_LOADER)
+        hookAllMethods(xposed, systemServerClassLoader, Constants.CLASS_EWS_IMPL_COLLECTOR)
+        hookAllMethods(xposed, systemServerClassLoader, Constants.CLASS_EWS_LOADER)
     }
 
     private fun probe(cl: ClassLoader): Boolean = runCatching {
-        XposedHelpers.findClass(Constants.CLASS_SYSTEM_EMBEDDED_RULE, cl)
+        Reflect.findClass(Constants.CLASS_SYSTEM_EMBEDDED_RULE, cl)
         true
     }.getOrDefault(false)
 
-    private fun hookAllMethods(systemServerClassLoader: ClassLoader, className: String) {
+    private fun hookAllMethods(
+        xposed: XposedInterface,
+        systemServerClassLoader: ClassLoader,
+        className: String
+    ) {
         val clazz = runCatching {
-            XposedHelpers.findClass(className, systemServerClassLoader)
+            Reflect.findClass(className, systemServerClassLoader)
         }.getOrElse { return }
 
-        val hook = object : XC_MethodHook() {
-            override fun afterHookedMethod(param: MethodHookParam) {
-                if (pluginClassLoader != null) return
-                val candidate = (param.result ?: param.thisObject) ?: return
-                val cl = candidate.javaClass.classLoader ?: return
-                if (cl === systemServerClassLoader) return
-                if (!probe(cl)) return
-                publish(cl, "由 ${className.substringAfterLast('.')}.${param.method.name} 捕获")
+        var count = 0
+        val executables: List<Executable> =
+            clazz.declaredMethods.toList() + clazz.declaredConstructors.toList()
+        executables.forEachIndexed { index, e ->
+            runCatching {
+                e.isAccessible = true
+                // 拦截链模型没有 after 回调：先放行原方法，再从返回值 / this 上取 ClassLoader
+                val handle = xposed.hook(e).setId("$className#$index")
+                    .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                    .intercept(Hooker { chain ->
+                        val result = chain.proceed()
+                        if (pluginClassLoader == null) {
+                            val candidate = result ?: chain.thisObject
+                            val cl = candidate?.javaClass?.classLoader
+                            if (cl != null && cl !== systemServerClassLoader && probe(cl)) {
+                                publish(cl, "由 ${className.substringAfterLast('.')} 捕获")
+                            }
+                        }
+                        result
+                    })
+                catcherHooks += handle
+                count++
             }
         }
-
-        var count = 0
-        clazz.declaredMethods.forEach { m ->
-            runCatching { catcherHooks += XposedBridge.hookMethod(m, hook); count++ }
-        }
-        clazz.declaredConstructors.forEach { c ->
-            runCatching { catcherHooks += XposedBridge.hookMethod(c, hook); count++ }
-        }
+        if (count == 0) XLog.e("未挂上 $className 的捕获钩子")
     }
 
     @Synchronized

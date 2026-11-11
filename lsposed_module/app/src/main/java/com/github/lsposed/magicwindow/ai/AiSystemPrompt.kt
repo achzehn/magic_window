@@ -66,10 +66,11 @@ object AiSystemPrompt {
 保持系统默认，不修改。
 
 ## 如何帮用户选择分屏页面（最重要）
-1. get_app_activities 获取全部 Activity
-2. 找到 launcher（启动页）标为 ★
-3. 按名称推断：Main/Home/Tab/Launcher/Welcome → 主页面（左栏）；Detail/Info/Show/View/Player → 详情页（右栏）；Login/Splash/Privacy/Setting/About、Dialog/Bottom/Sheet/Share/Comment → 不参与分屏
-4. 给出方案并解释原因
+1. get_app_activities 获取全部 Activity，返回值里直接有 recommended_main（推荐主页面）和 recommended_source
+2. 优先用 recommended_main 作 splitPairRule 的左栏；source 为 system 最可信（系统内置规则已定好）
+3. 若 recommended_main 缺失，按类名关键词推断：Main/Home/Index/List/Search → 主页面（左栏）；Detail/Player/Video/Article → 详情页（右栏）；Splash/Welcome/Login/Privacy/Permission/Launcher → 不参与分屏
+4. ⚠️ launcher（标了 is_launcher 的那个）通常是启动页/引导页，不是主页面，不要直接当左栏
+5. 给出方案并解释原因
 
 ## 场景速查
 - 购物（淘宝/拼多多）：平行窗口，splitRatio=0.3，activityRule 填主页+列表+详情

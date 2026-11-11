@@ -3,10 +3,11 @@ package com.github.lsposed.magicwindow.hook.steps
 import com.github.lsposed.magicwindow.common.Constants
 import com.github.lsposed.magicwindow.common.model.CloudXmlCodec
 import com.github.lsposed.magicwindow.common.model.WindowMode
+import com.github.lsposed.magicwindow.hook.Reflect
 import com.github.lsposed.magicwindow.hook.RuleStore
 import com.github.lsposed.magicwindow.hook.XLog
-import de.robv.android.xposed.XC_MethodHook
-import de.robv.android.xposed.XposedHelpers
+import io.github.libxposed.api.XposedInterface
+import io.github.libxposed.api.XposedInterface.Hooker
 import java.io.File
 
 /**
@@ -82,11 +83,11 @@ object EmbeddedFixedCloudInjector {
         }
     }
 
-    fun apply(pluginClassLoader: ClassLoader) {
+    fun apply(xposed: XposedInterface, pluginClassLoader: ClassLoader) {
         // embedding 与 fixed 各挂各的读规则 hook：分别在 loadPackage /
         // loadLocalFixOrientationRuleXML 后从宿主对象取 mEmbeddedRule、mFixOriController 缓存
-        hookEmbedding(pluginClassLoader)
-        hookFixed(pluginClassLoader)
+        hookEmbedding(xposed, pluginClassLoader)
+        hookFixed(xposed, pluginClassLoader)
     }
 
     /** 配置保存后由 RuleStore.onChange 调用：用缓存实例重新注入并热重载。 */
@@ -102,25 +103,30 @@ object EmbeddedFixedCloudInjector {
 
     // ── embedding ────────────────────────────────────────────
 
-    private fun hookEmbedding(cl: ClassLoader) {
+    private fun hookEmbedding(xposed: XposedInterface, cl: ClassLoader) {
         runCatching {
-            val parsingClass =
-                XposedHelpers.findClass(Constants.CLASS_PARSING_EMBEDDED_RULE, cl)
-            XposedHelpers.findAndHookMethod(
-                parsingClass, "loadPackage",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
+            val parsingClass = Reflect.findClass(Constants.CLASS_PARSING_EMBEDDED_RULE, cl)
+            // 旧版 ROM 的 loadPackage 带 1 个参数，Android 17（OS4.x）已改为无参；
+            // 按方法名取参数最少的重载，避免参数个数硬编码导致 hook 失败、embeddedRule 永远为 null
+            val loadPackage = Reflect.findMethods(parsingClass, "loadPackage")
+                .minByOrNull { it.parameterCount }
+                ?: throw NoSuchMethodException("${parsingClass.name}#loadPackage")
+            xposed.hook(loadPackage).setId("embedding_loadPackage")
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                .intercept(Hooker { chain ->
+                    val result = chain.proceed()
+                    if (embeddedRule == null) {
                         val er = runCatching {
-                            XposedHelpers.getObjectField(param.thisObject, "mEmbeddedRule")
-                        }.getOrNull() ?: return
-                        if (embeddedRule == null) {
+                            Reflect.getField(chain.thisObject, "mEmbeddedRule")
+                        }.getOrNull()
+                        if (er != null) {
                             embeddedRule = er
                             // 异步注入，避免阻塞系统启动
                             injectAsync()
                         }
                     }
-                }
-            )
+                    result
+                })
             XLog.i("已挂钩 MiuiParsingEmbeddedRule.loadPackage")
         }.onFailure { XLog.e("挂钩 embedding 云控注入失败", it) }
     }
@@ -140,7 +146,7 @@ object EmbeddedFixedCloudInjector {
         if (overrides.isEmpty() && removals.isEmpty()) return
 
         val projection = runCatching {
-            XposedHelpers.callMethod(embeddedRule, "isProjection") as Boolean
+            Reflect.call(embeddedRule, "isProjection") as Boolean
         }.getOrDefault(false)
         val cloudFile = cloudFile(
             projection,
@@ -161,33 +167,35 @@ object EmbeddedFixedCloudInjector {
         }
 
         runCatching {
-            XposedHelpers.callMethod(embeddedRule, "updatePackageConfigFromCloud")
+            Reflect.call(embeddedRule, "updatePackageConfigFromCloud")
             XLog.i("已触发 embedding 热重载")
         }.onFailure { XLog.e("触发 embedding 热重载失败", it) }
     }
 
     // ── fixed ────────────────────────────────────────────────
 
-    private fun hookFixed(cl: ClassLoader) {
+    private fun hookFixed(xposed: XposedInterface, cl: ClassLoader) {
         runCatching {
-            val parsingClass = XposedHelpers.findClass(
+            val parsingClass = Reflect.findClass(
                 "com.android.server.wm.MiuiParsingFixedOrientationRule", cl
             )
-            XposedHelpers.findAndHookMethod(
-                parsingClass, "loadLocalFixOrientationRuleXML",
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
+            val loadLocal = Reflect.method(parsingClass, "loadLocalFixOrientationRuleXML", 0)
+            xposed.hook(loadLocal).setId("fixed_loadLocalRule")
+                .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                .intercept(Hooker { chain ->
+                    val result = chain.proceed()
+                    if (fixedController == null) {
                         val fc = runCatching {
-                            XposedHelpers.getObjectField(param.thisObject, "mFixOriController")
-                        }.getOrNull() ?: return
-                        if (fixedController == null) {
+                            Reflect.getField(chain.thisObject, "mFixOriController")
+                        }.getOrNull()
+                        if (fc != null) {
                             fixedController = fc
                             // 异步注入，避免阻塞系统启动
                             injectAsync()
                         }
                     }
-                }
-            )
+                    result
+                })
             XLog.i("已挂钩 MiuiParsingFixedOrientationRule.loadLocalFixOrientationRuleXML")
         }.onFailure { XLog.e("挂钩 fixed 云控注入失败", it) }
     }
@@ -204,7 +212,7 @@ object EmbeddedFixedCloudInjector {
         if (overrides.isEmpty() && removals.isEmpty()) return
 
         val projection = runCatching {
-            XposedHelpers.getBooleanField(controller, "mIsProjection")
+            Reflect.getBooleanField(controller, "mIsProjection")
         }.getOrElse { false }
         val cloudFile = cloudFile(
             projection,
@@ -227,7 +235,7 @@ object EmbeddedFixedCloudInjector {
         }
 
         runCatching {
-            XposedHelpers.callMethod(controller, "updateFixedOrientationFromCloud")
+            Reflect.call(controller, "updateFixedOrientationFromCloud")
             XLog.i("已触发 fixed 热重载")
         }.onFailure { XLog.e("触发 fixed 热重载失败", it) }
     }
@@ -265,7 +273,7 @@ object EmbeddedFixedCloudInjector {
                 runCatching {
                     // createSetting(pkg, enable, fixedOrientationEnable, fullScreenEnable,
                     //               ratio_4_3_Enable, ratio_16_9_Enable, ratio_fullScreenEnable, isModified)
-                    XposedHelpers.callMethod(
+                    Reflect.call(
                         embeddedRule, "createSetting",
                         rule.packageName,
                         "",      // enable(平行窗口) 留空：当前是固定横屏模式
@@ -279,7 +287,7 @@ object EmbeddedFixedCloudInjector {
                 }.onFailure { XLog.e("createSetting(${rule.packageName}) 失败", it) }
             }
             runCatching {
-                XposedHelpers.callMethod(
+                Reflect.call(
                     embeddedRule, "onAppUiModeChanged", "", rule.packageName, target
                 )
                 XLog.i("已翻 ${rule.packageName} 到模式 $target")

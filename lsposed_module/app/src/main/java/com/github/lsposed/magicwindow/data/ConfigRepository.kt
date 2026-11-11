@@ -1,7 +1,6 @@
 package com.github.lsposed.magicwindow.data
 
 import android.content.Context
-import android.content.Intent
 import android.content.SharedPreferences
 import com.github.lsposed.magicwindow.common.Constants
 import com.github.lsposed.magicwindow.common.model.AppRule
@@ -10,8 +9,8 @@ import com.github.lsposed.magicwindow.common.model.RuleCodec
 /**
  * 配置仓储。
  *
- * 依赖 `xposedsharedprefs=true`：LSPosed 会把这份 SharedPreferences 变为 hook 侧可读，
- * 因此需要用 MODE_WORLD_READABLE 打开（未激活模块时会抛异常，回落到 MODE_PRIVATE）。
+ * 双写：本地普通 SharedPreferences 保证 App 自身随时可读（模块未激活也能编辑规则），
+ * 每次保存后再经 libxposed 框架服务写入远端首选项，hook 侧（system_server）据此读取并热重载。
  *
  * 线程模型：AI 工具在 IO 线程读写、MCP 工具在后台单线程执行、UI 在主线程——
  * 所有对 [rules] 的结构性访问都在 synchronized 块内，[allRules] 返回快照避免迭代中 CME。
@@ -22,15 +21,9 @@ object ConfigRepository {
 
     private val rules = LinkedHashMap<String, AppRule>()
 
-    @Suppress("DEPRECATION")
     fun init(context: Context) {
         if (::prefs.isInitialized) return
-        this.context = java.lang.ref.WeakReference(context.applicationContext)
-        prefs = runCatching {
-            context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_WORLD_READABLE)
-        }.getOrElse {
-            context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
-        }
+        prefs = context.getSharedPreferences(Constants.PREFS_NAME, Context.MODE_PRIVATE)
         // 损坏的 JSON 按空配置处理（decodeRules 失败抛异常），不让启动路径崩溃
         synchronized(rules) {
             rules.clear()
@@ -82,27 +75,23 @@ object ConfigRepository {
         val encoded = synchronized(rules) { RuleCodec.encodeRules(rules.values) }
         val ok = prefs.edit().putString(Constants.KEY_RULES, encoded).commit()
         if (!ok) {
-            // commit 失败仍发广播会让 hook 侧重载到旧配置，状态分叉且无从察觉
-            android.util.Log.w("ConfigRepository", "规则持久化失败（commit 返回 false），跳过热更新广播")
+            // commit 失败仍推送会让 hook 侧生效一份与界面不一致的配置，状态分叉且无从察觉
+            android.util.Log.w("ConfigRepository", "规则持久化失败（commit 返回 false），跳过推送 hook 侧")
             return
         }
-        notifyHookSide()
+        pushToHook()
     }
 
     /**
-     * 通知 hook 侧热重载。
-     * FileObserver 在 system_server 上收不到 LSPosed prefs 目录的事件（SELinux 类别标签），
-     * 所以保存后显式发广播；system_server 侧在接收端用 Intent.getSentFromPackage 校验发送者。
-     * 延迟 500ms 是给 LSPosed 守护进程留出把 prefs 同步到托管目录的时间。
+     * 把当前规则推送到远端首选项，hook 侧（system_server）监听该键即热重载。
+     *
+     * 服务未绑定时（模块未激活 / 框架刚重启）静默失败：规则已落本地，
+     * 待 [XposedServiceBridge] 绑定成功后由 [MagicWindowApp] 补推一次。
      */
-    private fun notifyHookSide() {
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-            runCatching {
-                context?.get()?.sendBroadcast(Intent(Constants.ACTION_CONFIG_CHANGED))
-            }
-        }, 500L)
+    fun pushToHook() {
+        val encoded = synchronized(rules) { RuleCodec.encodeRules(rules.values) }
+        if (!XposedServiceBridge.writeRules(encoded)) {
+            android.util.Log.i("ConfigRepository", "框架服务未就绪，规则仅落本地，待绑定后补推")
+        }
     }
-
-    /** 应用上下文，仅用于发广播；init 时传入不持有 Activity */
-    private var context: java.lang.ref.WeakReference<Context>? = null
 }

@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import com.github.lsposed.magicwindow.common.model.AppRule
 import com.github.lsposed.magicwindow.common.model.WindowMode
 import com.github.lsposed.magicwindow.data.ConfigRepository
+import com.github.lsposed.magicwindow.data.MainPageResolver
 import com.github.lsposed.magicwindow.data.RuleDiagnostics
 import com.github.lsposed.magicwindow.data.SystemRuleSource
 import com.github.lsposed.magicwindow.mcp.McpServer
@@ -37,7 +38,7 @@ object AiToolExecutor {
 
         arr.put(makeTool(
             "get_app_activities",
-            "获取指定应用的全部 Activity 页面列表。用于确定哪些页面参与分屏。返回的列表中启动页会标记为「★」。",
+            "获取指定应用的全部 Activity 页面列表，用于确定哪些页面参与分屏。返回 recommended_main（推荐主页面类名）与 recommended_source（来源：system/keyword/launcher），每个页面带 role（左栏/右栏/跳过）；启动页标记 is_launcher。优先用 recommended_main 作 splitPairRule 左栏。",
             listOf("package_name" to "应用包名，如 tv.danmaku.bili")
         ))
 
@@ -278,6 +279,9 @@ object AiToolExecutor {
         val names = acts.mapNotNull { it.name }.distinct()
             .sortedWith(compareByDescending<String> { it == launcher }.thenBy { it })
 
+        // 主页面推荐：系统内置规则优先，其次类名关键词（launcher 常是启动页，仅兜底）
+        val resolved = MainPageResolver.resolve(pkg, names, launcher)
+
         val arr = JSONArray()
         names.forEach { name ->
             val label = runCatching {
@@ -288,12 +292,15 @@ object AiToolExecutor {
             arr.put(JSONObject()
                 .put("name", name)
                 .put("label", label)
-                .put("is_launcher", name == launcher))
+                .put("is_launcher", name == launcher)
+                .put("role", MainPageResolver.roleOf(name)))
         }
 
         return JSONObject()
             .put("package_name", pkg)
             .put("launcher", launcher ?: JSONObject.NULL)
+            .put("recommended_main", resolved?.first ?: JSONObject.NULL)
+            .put("recommended_source", resolved?.second ?: JSONObject.NULL)
             .put("total", names.size)
             .put("activities", arr)
             .toString()

@@ -55,11 +55,22 @@ android {
     lint {
         abortOnError = false
     }
+
+    packaging {
+        resources {
+            // libxposed 入口清单必须原样打包进 APK 根 META-INF/xposed/
+            merges.add("META-INF/xposed/*")
+        }
+    }
 }
 
 dependencies {
     implementation(project(":library:common"))
     implementation(project(":library:libhook"))
+
+    // libxposed 服务端 SDK：供 App 侧与 LSPosed 框架通信（远程配置 + 激活状态）。
+    // 通过 XposedProvider 跨进程调用框架，类须随 APK 一起打包
+    implementation(libs.libxposed.service)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

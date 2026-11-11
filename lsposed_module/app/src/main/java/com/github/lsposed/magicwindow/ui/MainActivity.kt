@@ -370,7 +370,7 @@ class MainActivity : AppCompatActivity() {
 
         btnTest.setOnClickListener {
             val triple = currentTriple()
-            if (triple.first.isEmpty() || triple.second.isEmpty() || triple.third.isEmpty()) {
+            if (triple.first.isEmpty() || triple.second.isEmpty()) {
                 tvTestResult.visibility = View.VISIBLE
                 tvTestResult.text = getString(R.string.ai_model_test_empty)
                 tvTestResult.setTextColor(ContextCompat.getColor(this, R.color.conflict_error))
@@ -405,8 +405,8 @@ class MainActivity : AppCompatActivity() {
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val triple = currentTriple()
-                // 必填校验
-                if (triple.first.isEmpty() || triple.second.isEmpty() || triple.third.isEmpty()) {
+                // 必填校验（密钥可留空，本地模型服务通常不校验）
+                if (triple.first.isEmpty() || triple.second.isEmpty()) {
                     tvTestResult.visibility = View.VISIBLE
                     tvTestResult.text = getString(R.string.ai_model_test_empty)
                     tvTestResult.setTextColor(ContextCompat.getColor(this, R.color.conflict_error))
@@ -427,12 +427,12 @@ class MainActivity : AppCompatActivity() {
                     apiBase = triple.first,
                     modelId = triple.second,
                     apiKey = triple.third,
-                    maxInputTokens = etMaxInputTokens.text.toString().toIntOrNull() ?: 131072,
-                    maxOutputTokens = etMaxOutputTokens.text.toString().toIntOrNull() ?: 16384,
-                    toolRounds = etToolRounds.text.toString().toIntOrNull() ?: 25,
-                    temperature = etTemperature.text.toString().toFloatOrNull() ?: 0.4f,
-                    topP = etTopP.text.toString().toFloatOrNull() ?: 0.95f,
-                    topK = etTopK.text.toString().toIntOrNull() ?: 20,
+                    maxInputTokens = etMaxInputTokens.text.toString().toIntOrNull() ?: 128000,
+                    maxOutputTokens = etMaxOutputTokens.text.toString().toIntOrNull() ?: 12800,
+                    toolRounds = etToolRounds.text.toString().toIntOrNull() ?: 120,
+                    temperature = etTemperature.text.toString().toFloatOrNull() ?: 0.3f,
+                    topP = etTopP.text.toString().toFloatOrNull() ?: 1.0f,
+                    topK = etTopK.text.toString().toIntOrNull() ?: 35,
                     enabled = model?.enabled ?: true
                 )
                 if (model != null) {
@@ -757,10 +757,17 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 框架服务绑定是异步的：进入页面时可能还没绑上，绑定/断开后立即重绘状态
+        com.github.lsposed.magicwindow.data.XposedServiceBridge.onStateChanged = { renderStatus() }
         renderStatus()
         renderMcpState()
         // 从 AI 对话页切换模型返回后，同步刷新「当前模型」显示
         renderAiModelStatus()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        com.github.lsposed.magicwindow.data.XposedServiceBridge.onStateChanged = null
     }
 
     private fun renderMcpState() {

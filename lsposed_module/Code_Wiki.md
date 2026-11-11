@@ -14,7 +14,8 @@
 - 通过 Xposed Hook 注入 `system_server` 进程，把用户指定的应用「加进」系统大屏适配名单
 - 提供完整的 Android UI，暴露 45+ 个规则属性供精细调节
 - 内置 MCP（Model Context Protocol）调试服务器，支持 AI 模型通过局域网读写规则
-- 热更新：App 保存配置后无需重启即可生效（通过广播通知 + 缓存实例重新落盘）
+- 热更新：App 保存配置后无需重启即可生效（LSPosed 远端首选项变更监听 + 缓存实例重新落盘）
+- 框架兼容：**libxposed 现代 API 102**（`io.github.libxposed`），入口/作用域/元数据全部走 `META-INF/xposed/`
 
 ---
 
@@ -41,14 +42,17 @@ magic_window/
     ├── app/                           # ── 主应用模块 ──
     │   ├── build.gradle.kts           # 应用构建配置（签名/编译选项）
     │   └── src/main/
-    │       ├── AndroidManifest.xml    # Activity/LCPosed 元数据/权限
-    │       ├── assets/xposed_init     # Xposed 入口类声明
+    │       ├── AndroidManifest.xml    # Activity/权限/框架服务 Provider（由 libxposed service 注入）
+    │       ├── resources/META-INF/xposed/  # 现代 API 模块元数据（打包进 APK 根 META-INF/xposed/）
+    │       │   ├── java_init.list     # 模块入口类（XposedEntry）
+    │       │   ├── module.prop        # minApiVersion/targetApiVersion/staticScope/exceptionMode
+    │       │   └── scope.list         # 作用域：system + 模块自身
     │       ├── res/                   # 布局/菜单/字符串/主题
     │       └── java/.../
     │           ├── MagicWindowApp.kt  # Application 初始化
-    │           ├── ModuleStatus.kt    # 激活状态探针
+    │           ├── ModuleStatus.kt    # 激活状态探针（读框架服务绑定状态）
     │           ├── ui/                # UI 层（4 个 Activity + 工具类）
-    │           ├── data/              # 数据层（配置仓储/系统规则/导入导出）
+    │           ├── data/              # 数据层（配置仓储/系统规则/导入导出/框架服务桥）
     │           └── mcp/               # MCP 调试服务器
     │
     └── library/                       # ── 库模块 ──
@@ -65,16 +69,16 @@ magic_window/
         └── libhook/                   # Hook 核心库
             ├── build.gradle.kts
             └── src/main/java/.../
-                ├── XposedEntry.kt     # Xposed 入口（IXposedHookLoadPackage）
+                ├── XposedEntry.kt     # 现代 API 入口（XposedModule）
                 ├── SystemServerHooks.kt # system_server 注入编排
-                ├── RuleStore.kt       # 配置读取（内存快照 + 广播热更新）
+                ├── RuleStore.kt       # 配置读取（远端首选项 + 内存快照 + 变更监听）
+                ├── Reflect.kt         # 反射辅助（替代已废弃的 XposedHelpers）
                 ├── XLog.kt            # 统一日志出口
                 └── steps/
                     ├── PropertyGate.kt           # 第 0 步：总开关 property 校验
                     ├── PluginClassLoaderCatcher.kt # 第一步：捕获插件 ClassLoader
                     ├── AutoUiCloudInjector.kt     # 第二步：autoui 云控注入
-                    ├── EmbeddedFixedCloudInjector.kt # 第二步：embedding/fixed 云控注入
-                    └── ConfigSyncReceiver.kt      # 配置热更新广播接收器
+                    └── EmbeddedFixedCloudInjector.kt # 第二步：embedding/fixed 云控注入
 ```
 
 ---
@@ -88,13 +92,15 @@ magic_window/
 │                     用户界面（App 进程）                    │
 │  MainActivity → AppListActivity → AppDetailActivity      │
 │  McpServer (局域网 HTTP)                                  │
+│  XposedServiceBridge ←→ LSPosed 框架服务（XposedProvider） │
 └──────────────────┬──────────────────────────────────────┘
-                   │ SharedPreferences (MODE_WORLD_READABLE)
-                   │ + 广播 ACTION_CONFIG_CHANGED
+                   │ LSPosed 远端首选项 magic_window_config
+                   │ （App 侧经 XposedService 写，hook 侧经 XposedInterface 读，
+                   │   框架自动推送变更，无需广播）
 ┌──────────────────▼──────────────────────────────────────┐
-│               system_server 进程（Xposed 注入）            │
+│               system_server 进程（libxposed 注入）         │
 │                                                          │
-│  XposedEntry                                             │
+│  XposedEntry (XposedModule)                              │
 │    ├─ PropertyGate          (总开关兜底)                  │
 │    ├─ PluginClassLoaderCatcher (捕获插件 ClassLoader)     │
 │    ├─ AutoUiCloudInjector   (autoui 云控落盘 + 热重载)    │
@@ -102,8 +108,7 @@ magic_window/
 │    │    ├─ doEmbedding()    (写入 embedding 云控 XML)    │
 │    │    ├─ doFixed()        (写入 fixed 云控 XML)        │
 │    │    └─ applyAppModes()  (翻转应用模式开关)            │
-│    ├─ ConfigSyncReceiver    (接收配置变更广播)            │
-│    └─ RuleStore             (内存快照配置缓存)            │
+│    └─ RuleStore             (远端首选项 + 内存快照)       │
 │                                                          │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │         HyperOS 系统框架（miui-*.jar）            │   │
@@ -121,13 +126,13 @@ magic_window/
        │
        ▼
 ConfigRepository.saveRule()
-  ├─ prefs.commit() → LSPosed 托管目录
-  └─ 500ms 延迟后发送广播 ACTION_CONFIG_CHANGED
-       │
+  ├─ 本地 prefs.commit()（MODE_PRIVATE，保证未激活时也能编辑）
+  └─ XposedServiceBridge.writeRules() → 远端首选项 commit
+       │   服务未就绪时写入失败：仅落本地，待 onBind 时由 MagicWindowApp 补推
        ▼
-ConfigSyncReceiver.onReceive()
-  └─ RuleStore.notifyFromApp()
-       ├─ RuleStore.loadNow()  → 重新读取 prefs → 更新内存快照
+LSPosed 框架推送变更 → RuleStore 的 OnSharedPreferenceChangeListener
+  └─ RuleStore.notifyFromApp()（切到 mw-rulestore 线程）
+       ├─ RuleStore.loadNow()  → 重新读取远端首选项 → 更新内存快照
        └─ 触发 onChange 回调
             ├─ AutoUiCloudInjector.injectNow()  → 重新落盘 + 热重载
             └─ EmbeddedFixedCloudInjector.injectNow()
@@ -139,30 +144,34 @@ ConfigSyncReceiver.onReceive()
 ### 3.3 注入流程（开机时）
 
 ```
-XposedEntry.handleLoadPackage("android")
+LSPosed 读取 META-INF/xposed/java_init.list → 实例化 XposedEntry
   │
-  ├─ SystemServerHooks.install(classLoader)
-  │    ├─ RuleStore.loadNow()               # 同步读一次配置
-  │    ├─ ConfigSyncReceiver.register()     # 注册配置变更广播（延迟重试）
-  │    │
-  │    ├─ [第 0 步] PropertyGate.apply()    # 校验总开关 property，必要时兜底 hook
-  │    │
-  │    ├─ PluginClassLoaderCatcher.start()  # [第一步] 捕获插件 ClassLoader
-  │    │    ├─ 策略 1：直接用 system_server CL 试探
-  │    │    ├─ 策略 2：hook ImplCollector 全部方法
-  │    │    └─ 策略 3：hook Loader 全部方法
-  │    │    └─ 拿到后立即摘钩，触发 whenReady 回调
-  │    │
-  │    ├─ whenReady 回调:
-  │    │    ├─ AutoUiCloudInjector.apply()       # hook loadPackage → 落盘 + 抬版本
-  │    │    └─ EmbeddedFixedCloudInjector.apply() # hook loadPackage/loadLocal...
-  │    │         ├─ 拿到 mEmbeddedRule 实例
-  │    │         ├─ 拿到 mFixOriController 实例
-  │    │         └─ 2 秒延迟后异步注入（落盘 + 翻开关）
-  │    │
-  │    └─ RuleStore.onChange { ... }        # 配置变更时热重载
+  ├─ onModuleLoaded()        # XLog.attach(module)
   │
-  └─ ModuleStatus.isModuleActive() → hook 返回 true
+  └─ onSystemServerStarting()
+       │
+       └─ SystemServerHooks.install(this, classLoader)
+            ├─ RuleStore.attach(xposed)       # 绑定远端首选项 + 首读 + 变更监听
+            │
+            ├─ [第 0 步] PropertyGate.apply() # 校验总开关 property，必要时兜底 hook
+            │
+            ├─ PluginClassLoaderCatcher.whenReady 注册回调
+            │
+            ├─ RuleStore.onChange { ... }     # 配置变更时热重载
+            │
+            └─ PluginClassLoaderCatcher.start()
+                 ├─ 策略 1：直接用 system_server CL 试探
+                 ├─ 策略 2：hook ImplCollector 全部方法
+                 ├─ 策略 3：hook Loader 全部方法
+                 └─ 拿到后立即摘钩，触发 whenReady 回调：
+                      ├─ AutoUiCloudInjector.apply()       # hook loadPackage → 落盘 + 抬版本
+                      └─ EmbeddedFixedCloudInjector.apply() # hook loadPackage/loadLocal...
+                           ├─ 拿到 mEmbeddedRule 实例
+                           ├─ 拿到 mFixOriController 实例
+                           └─ 2 秒延迟后异步注入（落盘 + 翻开关）
+
+App 侧激活判定：XposedServiceHelper.registerListener → onServiceBind 即视为已激活
+（现代 API 不再 hook 模块自身，见 ModuleStatus / XposedServiceBridge）
 ```
 
 ---
@@ -187,10 +196,11 @@ XposedEntry.handleLoadPackage("android")
 
 | 文件 | 职责 |
 |------|------|
-| `XposedEntry.kt` | Xposed 入口（`IXposedHookLoadPackage`）。作用域：`android`（全量注入）、模块自身（回显激活状态） |
-| `SystemServerHooks.kt` | 注入编排器：按顺序调度第 0 步 → 捕获 ClassLoader → autoui 注入 → embedding/fixed 注入，并注册配置变更热重载 |
-| `RuleStore.kt` | 配置读取层：基于 `XSharedPreferences` 的内存快照，App 保存广播驱动热更新（FileObserver 在 system_server 上收不到事件，已移除监听路径），热路径绝不做文件 IO |
-| `XLog.kt` | 统一日志：写入 `XposedBridge.log`，仅 info / error 两级 |
+| `XposedEntry.kt` | 现代 API 入口（`io.github.libxposed.api.XposedModule`）。作用域由 `META-INF/xposed/scope.list` 声明：`system`（system_server）+ 模块自身（仅用于框架登记）；`onHotReloading` 返回 false 表示不支持热重载 |
+| `SystemServerHooks.kt` | 注入编排器：绑定远端首选项 → 第 0 步 → 捕获 ClassLoader → autoui 注入 → embedding/fixed 注入，并注册配置变更热重载 |
+| `RuleStore.kt` | 配置读取层：`XposedInterface.getRemotePreferences` + 变更监听驱动热更新，内存快照供热路径零 IO 读取 |
+| `Reflect.kt` | 反射辅助（`field` / `call` 等），替代现代 API 已移除的 `XposedHelpers` |
+| `XLog.kt` | 统一日志：写入 libxposed `XposedInterface.log`（LSPosed 模块日志），仅 info / error 两级。**tag 必须传 `null`**，自定义 tag 会被框架过滤、管理器看不到输出 |
 
 **steps/ 子包（注入步骤）：**
 
@@ -199,15 +209,14 @@ XposedEntry.handleLoadPackage("android")
 | `PropertyGate.kt` | 第 0 步 | 校验三个 `SystemProperty` 总开关（AE/AutoUI/Characteristics），为 false 时 hook 兜底（`ro.` 属性无法 setprop） |
 | `PluginClassLoaderCatcher.kt` | 第一步 | 三级降级策略捕获 HyperOS Stub 插件的 ClassLoader。拿到后**立即摘钩**，不影响系统热路径 |
 | `AutoUiCloudInjector.kt` | 第二步 | hook `MiuiParsingAutoUI.loadPackage`，在 before 中落盘云控文件 + 抬高版本号，after 中触发热重载。支持指纹去重避免重复写文件 |
-| `EmbeddedFixedCloudInjector.kt` | 第二步 | hook `MiuiParsingEmbeddedRule.loadPackage` / `MiuiParsingFixedOrientationRule.loadLocalFixOrientationRuleXML`，拿到宿主实例后缓存；异步执行「读全量 → 按包覆盖 → 写回 → 热重载 → 翻应用模式」 |
-| `ConfigSyncReceiver.kt` | 热更新 | 注册 `ACTION_CONFIG_CHANGED` 广播，接收 App 侧保存通知并触发 `RuleStore.notifyFromApp()`。使用 `getSentFromPackage` 校验发送者 |
+| `EmbeddedFixedCloudInjector.kt` | 第二步 | hook `MiuiParsingEmbeddedRule.loadPackage` / `MiuiParsingFixedOrientationRule.loadLocalFixOrientationRuleXML`，拿到宿主实例后缓存；异步执行「读全量 → 按包覆盖 → 写回 → 热重载 → 翻应用模式」。`loadPackage` 的参数个数随 ROM 版本变化（旧版 1 参、Android 17 为无参），必须按方法名取参数最少的重载，不可硬编码参数个数 |
 
 ### 4.3 `app` — 用户界面
 
 | 文件 | 职责 |
 |------|------|
-| `MagicWindowApp.kt` | Application：初始化 `ConfigRepository`、后台预热 `SystemRuleSource`（v2.3.0 起移除 DynamicColors，固定使用品牌色板） |
-| `ModuleStatus.kt` | 激活状态探针：`isModuleActive()` 默认返回 false，被 Xposed hook 成返回 true |
+| `MagicWindowApp.kt` | Application：初始化 `ConfigRepository`、注册 `XposedServiceBridge.onBind` 补推规则（覆盖「保存时服务未就绪」与框架重启后的失同步）、后台预热 `SystemRuleSource`（v2.3.0 起移除 DynamicColors，固定使用品牌色板） |
+| `ModuleStatus.kt` | 激活状态探针：`isModuleActive()` 读 `XposedServiceBridge.isActive`（框架服务是否已绑定）。现代 API 下模块 App 不再被 hook，不能再用 hook 回显 |
 | **ui/** | |
 | `MainActivity.kt` (322行) | 主界面：模块状态显示、应用列表入口、MCP 服务器开关/配置（端口/令牌/客户端 JSON）、隐藏桌面图标、配置导入导出 |
 | `AppListActivity.kt` (211行) | 应用列表：搜索/筛选（全部/已设置/被系统禁用/已安装/系统应用）、长按进入多选批量操作（套用模式/清除设置） |
@@ -217,9 +226,11 @@ XposedEntry.handleLoadPackage("android")
 | `ModeUi.kt` | 模式文案与配色映射 |
 | `BuiltinUi.kt` | 「系统已内置」徽标文案生成 |
 | **data/** | |
-| `ConfigRepository.kt` | 配置仓储：SharedPreferences 读写（`MODE_WORLD_READABLE`）、规则 CRUD、保存后发广播通知 Hook 侧 |
+| `ConfigRepository.kt` | 配置仓储：本地 SharedPreferences（`MODE_PRIVATE`）读写规则 CRUD；保存成功后经 `pushToHook()` 写入远端首选项；远端未就绪时仅落本地，待服务绑定后补推 |
+| `XposedServiceBridge.kt` | 框架服务桥：`XposedServiceHelper` 监听绑定状态（激活探针）+ 通过 `XposedService.getRemotePreferences` 写配置；`onStateChanged` 通知界面重绘激活状态 |
 | `AppItem.kt` | 应用列表项模型 + `AppLoader`（按包名/标签排序加载已安装应用） |
 | `SystemRuleSource.kt` (343行) | 系统规则读取器：通过 root 读取 `/data/system/` 云控文件 + `/product/etc/` 本地名单，按 `dataVersion` 比较选择生效版本；提供 `applyDefaults()` 用系统内置值填充 AppRule |
+| `MainPageResolver.kt` | 主页面（左栏）判定：为 `splitPairRule` / `activityRule` 提供候选类名。判定顺序 系统内置规则反查（`splitPairRule` 首个左栏）> 类名关键词（Main/Home/Index > List/Search/Tab）> launcher 兜底。排除词按驼峰词元整词匹配（避免 `readassistant` 误命中 `Ad`），启动页词元 `Splash/Launch` 降权而非硬排除。统计依据：真机 3850 个左栏中 `Main` ×1331 / `Home` ×580。`roleOf()` 供工具返回页面角色 |
 | `ConfigExporter.kt` | 配置导入导出（version 1/2 兼容），支持 v1 的 `globalConfig` 字段兼容 |
 | **mcp/** | |
 | `McpServer.kt` (442行) | 内置 MCP 调试服务器（Streamable-HTTP JSON-RPC 2.0），提供 8 个工具：`list_rules` / `get_rule` / `set_rule` / `delete_rule` / `get_system_rule` / `search_apps` / `list_activities` / `export_rules`。支持令牌鉴权、端口配置、客户端配置 JSON 生成 |
@@ -295,15 +306,16 @@ data class AppRule(val packageName: String) {
 
 ```kotlin
 object RuleStore {
-    fun loadNow()                           // 阻塞读一次配置（仅入口调用）
-    fun notifyFromApp()                     // 广播触发的热更新
+    fun attach(xposed: XposedInterface)     // 绑定远端首选项 + 首读 + 注册变更监听（入口调用一次）
+    fun loadNow()                           // 阻塞读一次配置（仅内部/首读调用）
+    fun notifyFromApp()                     // 切到 mw-rulestore 线程：重读 + 通知回调
     fun onChange(listener: () -> Unit)      // 注册配置变更回调
     fun activeRules(): List<AppRule>        // 读取内存快照（热路径安全）
     fun autoUiRules(): List<AppRule>        // 过滤出 autoUiEnable=true 的规则
 }
 ```
 
-性能设计：读侧全在内存（`@Volatile snapshot`），由 App 保存广播（`ConfigSyncReceiver`）驱动热更新，热路径零 IO。FileObserver 在 system_server 上收不到 LSPosed prefs 目录的事件（SELinux 类别标签），监听路径已移除。
+性能设计：读侧全在内存（`@Volatile snapshot`），由 LSPosed 远端首选项的变更推送（`registerOnSharedPreferenceChangeListener`，仅监听 `KEY_RULES`）驱动热更新，热路径零 IO。LSPosed 的 `LSPosedRemotePreferences` 会在 App 侧写入后按 key 回调监听器，因此不再需要广播、`MODE_WORLD_READABLE` 或 `getSentFromPackage` 校验。
 
 ### 5.4 `PluginClassLoaderCatcher` — ClassLoader 捕获器
 
@@ -452,7 +464,8 @@ app ──→ library:common
 
 | 用途 | 位置 | 说明 |
 |------|------|------|
-| 模块规则 | SharedPreferences `magic_window_config`（键 `app_rules`） | LSPosed `xposedsharedprefs` 托管，system_server 侧用 `XSharedPreferences` 读取 |
+| 模块规则（本地副本） | SharedPreferences `magic_window_config`（键 `app_rules`），`MODE_PRIVATE` | App 侧真相源，未激活时也能编辑 |
+| 模块规则（框架通道） | LSPosed 远端首选项 `magic_window_config`（键 `app_rules`） | App 侧经 `XposedService.getRemotePreferences` 写，system_server 侧经 `XposedInterface.getRemotePreferences` 读，框架负责变更推送 |
 | 页面抓取记录 | SharedPreferences `magic_window_capture`（键 `records`） | 格式 `包名|类名` |
 | MCP 设置 | SharedPreferences `mcp_settings`（端口 + 令牌） | App 私有 |
 | 云控规则文件 | `/data/system/cloudFeature_*.xml` | system_server 运行时写入，模块不会修改系统分区 |
@@ -568,20 +581,22 @@ git push origin v2.4.4
 
 ---
 
-## 12. Xposed 作用域说明
+## 12. libxposed 模块声明（现代 API 102）
 
-```
-xposed_scope = ["android", "com.github.lsposed.magicwindow"]
-```
+所有框架元数据都在 `app/src/main/resources/META-INF/xposed/`，打包后位于 APK 根 `META-INF/xposed/`：
 
-- `android`（system_server）：全部注入逻辑（云控落盘、属性钩子、配置热更新）
-- 模块自身：仅用于回显「已激活」状态（`ModuleStatus.isModuleActive()` hook 成 true）
+| 文件 | 内容 | 说明 |
+|------|------|------|
+| `java_init.list` | `com.github.lsposed.magicwindow.hook.XposedEntry` | 模块入口类，LSPosed 据此实例化 |
+| `module.prop` | `minApiVersion=102` / `targetApiVersion=102` / `staticScope=true` / `exceptionMode=protective` | 最低与目标 API、静态作用域、异常保护模式；**不声明 `autoHotReload`**（system_server 热重载会让钩子与缓存实例错位） |
+| `scope.list` | `system` + `com.github.lsposed.magicwindow` | `system` 即 system_server（现代 API 下其包名为 `system`，不是 `android`） |
 
-**不需要勾选任何被适配的应用**——所有注入都发生在 `system_server` 里。
-
-**双轨声明（v2.3.0 起，参考 HyperCeiler-lite 写法）**：除上述 legacy 声明外，还打包了新版 libxposed 格式的 `META-INF/xposed/scope.list`（源文件在 `app/src/main/resources/META-INF/xposed/`，内容为 `system` + 模块自身），供读取 scope.list 的新版管理器（LSPosed_mod/Vector 等）识别推荐作用域。注意：
-- 本模块是**经典 API 模块**，`META-INF/xposed/` 下**严禁添加 `java_init.list` / `module.prop`**——加了会被 LSPosed 识别为新版模块并走 libxposed 加载路径，经典入口（`assets/xposed_init` → `hook.XposedEntry`）将失效
-- 官方 LSPosed 对经典模块只读 Manifest meta-data，不受 scope.list 影响
+要点：
+- **不再有** `assets/xposed_init`、Manifest 里的 `xposedmodule` / `xposedminversion` / `xposedscope` 等 meta-data；模块名取 `android:label`，描述取 `android:description`
+- `MainActivity` 保留 `de.robv.android.xposed.category.MODULE_SETTINGS` category —— LSPosed 管理器据此定位模块设置页，与现代 API 不冲突；桌面图标仍由 `LauncherAlias` 提供
+- 激活状态不再靠 hook 回显：`libxposed:service` 的 `XposedProvider` 会绑定框架服务，`XposedServiceHelper.onServiceBind` 即「已激活」
+- 配置通道为远端首选项，App 侧可写、hook 侧只读，框架负责变更推送
+- 模块本身不勾选任何被适配的应用——所有注入都发生在 `system_server` 里
 
 ---
 
@@ -591,10 +606,43 @@ xposed_scope = ["android", "com.github.lsposed.magicwindow"]
 - 换机型 / 大版本升级后可能因内部类名变化而失效
 - 「直接写进系统规则表」依赖内部结构，异常时优先关掉
 - MCP 服务器应用退到后台后可能被系统暂停
+- `libxposed api/service` 102 声明 `minCompileSdk=37`，当前 AGP 8.13 仅测到 36.1，构建会打印兼容提示（已在 `gradle.properties` 用 `android.suppressUnsupportedCompileSdk=37.0` 抑制）
+- 仅支持实现了 libxposed API 102 的框架（新版 LSPosed / Vector 等），**不再兼容只有传统 Xposed API 的旧框架**
 
 ---
 
 ## 14. 近期修改记录
+
+### v2.4.5 迁移到 libxposed 现代 API 102（2026-10-22）
+
+**动机：** LSPosed 主推 libxposed 现代 API，传统 `de.robv.android.xposed` 仅由兼容层维持。本次把入口、Hook 模型、配置通道、激活检测整体迁移，参考 `D:\lsp\hongguo` 的实现方式。
+
+**入口与构建：**
+
+1. 新增 `app/src/main/resources/META-INF/xposed/{java_init.list,module.prop,scope.list}`，删除 `assets/xposed_init` 与 Manifest 中的 `xposedmodule` / `xposedminversion` / `xposedscope` meta-data。
+2. `XposedEntry` 从 `IXposedHookLoadPackage` 改为 `XposedModule`：`onModuleLoaded` → `onSystemServerStarting` 安装钩子；`onHotReloading` 返回 false（不支持热重载）。
+3. 依赖改为 `io.github.libxposed:api`（`compileOnly`，由框架注入）+ `io.github.libxposed:service`（`implementation`，随 APK 打包）。两者声明 `minCompileSdk=37`，故 compileSdk 提到 37、AGP 8.13.0、Gradle 8.14.5，并在 `gradle.properties` 抑制 compileSdk 版本提示。
+4. `packaging.resources.merges` 增加 `META-INF/xposed/*`，保证元数据原样进 APK；`proguard-rules.pro` / `consumer-rules.pro` 改为 keep `XposedModule` 子类 + hook 包，并 `-adaptresourcefilecontents META-INF/xposed/java_init.list`。
+
+**Hook 模型：**
+
+5. 删除 `de.robv.android.xposed.*` 全部用法：`XposedHelpers` → 新增 `Reflect.kt`（`field` / `call`）；`XposedBridge.log` → `XposedInterface.log`（`XLog` 同步改）；`findAndHookMethod` → `xposed.hook(Executable).intercept { chain -> ... }`，摘钩统一用 `HookHandle.unhook()`。
+6. 移除 `ActivityThread.getSystemContext` 依赖（现代 API 无此入口，且已无消费方）。
+
+**配置与激活：**
+
+7. 配置通道：`XSharedPreferences` + `MODE_WORLD_READABLE` + `ACTION_CONFIG_CHANGED` 广播 + `getSentFromPackage` 校验 → LSPosed 远端首选项（App 侧 `XposedService.getRemotePreferences` 写，hook 侧 `XposedInterface.getRemotePreferences` 读），删除 `ConfigSyncReceiver.kt`。热更新改由 `RuleStore.attach` 注册的 `OnSharedPreferenceChangeListener` 驱动。
+8. 新增 `app/.../data/XposedServiceBridge.kt`：`XposedServiceHelper` 监听框架服务绑定，同时承担「激活探针」与「配置写入通道」；服务绑定/断开时通过 `onStateChanged` 通知 `MainActivity` 重绘状态。
+9. `ModuleStatus.isModuleActive()` 改读 `XposedServiceBridge.isActive`（现代 API 下模块 App 不再被 hook，旧回显方式失效）。
+10. `ConfigRepository`：本地 `MODE_PRIVATE` 为真相源，保存成功后 `pushToHook()` 写远端；远端未就绪只落本地，`MagicWindowApp` 注册 `XposedServiceBridge.onBind` 在绑定后补推，覆盖框架重启后的失同步。
+
+**清理：**
+
+11. 删除死常量 `Constants.SYSTEM_PACKAGE` / `ACTION_CONFIG_CHANGED` / `CLASS_MODULE_STATUS` / `M_IS_MODULE_ACTIVE`。
+12. `res/values/arrays.xml` 的 `xposed_scope` 展示文案与 `scope.list` 对齐（`system`，不再是 `android`）。
+13. `MainActivity` 的 `MODULE_SETTINGS` category **保留**：LSPosed 管理器「打开」按钮依赖它定位模块设置页。
+
+**验证：** `:app:assembleDebug` BUILD SUCCESSFUL；APK 内 `META-INF/xposed/` 三件套内容正确，Manifest 已由 `libxposed:service` 注入 `XposedProvider`（authorities `com.github.lsposed.magicwindow.XposedService`）。真机运行（注入、热更新、激活显示）需回归。
 
 ### v2.1.0（2026-09-13）
 
@@ -946,9 +994,9 @@ AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug
 | `ModelManager.currentDisplayName` | `app/.../ai/ModelManager.kt` | 零调用，UI 侧已内联同款表达式 |
 | `quickAction` / 空体 `showWelcome` | `app/.../ai/AiChatActivity.kt` | 布局已移除对应控件 |
 | `ActivityLabelCache.get/put/clearPackage` | `app/.../data/ActivityLabelCache.kt` | 仅 `getAllForPackage`/`putAll` 被使用 |
-| `Constants.LOG_TAG` / `M_CREATE_CLOUD_AUTO_UI_RULE` / `PERMISSION_CONFIG_CHANGED` | `common/.../Constants.kt` | 死常量（PERMISSION 实测不可用，见 ConfigSyncReceiver 注释） |
+| `Constants.LOG_TAG` / `M_CREATE_CLOUD_AUTO_UI_RULE` / `PERMISSION_CONFIG_CHANGED` / `SYSTEM_PACKAGE` | `common/.../Constants.kt` | 死常量（PERMISSION 随广播通道整体废弃；`SYSTEM_PACKAGE` 随经典 API 入口移除而失效） |
+| 构建配置：jitpack 空仓库 / app 与 common 的 `compileOnly(xposed-api)` | 构建文件 | 无消费者的声明（`suppressUnsupportedCompileSdk=37` 现已启用，不再是死配置） |
 | `AppDetailActivity` 死局部 `contextHint` | `app/.../ui/AppDetailActivity.kt:877` | 赋值后从未读取（消费点在 `buildContextAwarePrompt`） |
-| 构建配置：jitpack 空仓库 / `suppressUnsupportedCompileSdk=37` / app 与 common 的 `compileOnly(xposed-api)` | 构建文件 | 无消费者的声明 |
 
 **合并与收敛：**
 
@@ -1026,18 +1074,21 @@ AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug
 - `AppAdapter` 图标线程池 core 线程不超时 → 经匿名队列永久持有 Activity（每次进列表泄漏）→ `allowCoreThreadTimeOut(30s)`；徽标缓存不再缓存「规则表未加载」的 null
 - `AppListActivity` 网格列数只在 onCreate 计算 → 折叠/分屏跨 sw 阈值不重算 → `onConfigurationChanged` 重算
 
-**libhook（`RuleStore` / `RuleCodec` / `CloudXmlCodec` / `EmbeddedFixedCloudInjector` / `AutoUiCloudInjector` / `ConfigSyncReceiver`）：**
+**libhook（`RuleStore` / `RuleCodec` / `CloudXmlCodec` / `EmbeddedFixedCloudInjector` / `AutoUiCloudInjector`）：**
 
 - `RuleCodec.decodeRules` 吞异常返回空/半截表 → 配置损坏时把「读取失败」伪装成「配置被清空」并覆盖 hook 侧正常快照 → 解析失败抛出，`RuleStore.loadNow` 保留旧快照并打错误日志，App 侧 init 兜底空表
 - `CloudXmlCodec.parse` 吞异常 → 云控文件损坏时回落本地名单再写回，会丢云控里的系统条目 → 解析失败返回 null，`readBaseTable` 中止本轮注入
 - `RuleStore.notifyFromApp` 在 system_server 主线程做 prefs IO + 全量注入 → 迁移到专用 HandlerThread；`loadNow` 加锁
-- `ConfigSyncReceiver` 60s 后放弃注册（与「直到注册成功」注释不符，热更新永久失效）→ 持续重试直到成功
+- 旧广播通道 `ConfigSyncReceiver` 60s 后放弃注册导致热更新永久失效 → 已整体废弃：改用 LSPosed 远端首选项的变更监听，不存在注册超时
+- `ConfigRepository.commit()` 失败不再发热更新广播 → 现为「本地 commit 失败则直接跳过推送 hook 侧」；远端未就绪时由 `XposedServiceBridge.onBind` 在绑定后补推
 - `injectAsync` 的 check-then-act 竞态与触发丢失 → `injectLock` + `injectPending` 补跑；`injectNow` 加 `@Synchronized`
 - 规则改为「不处理(OFF)」后 `embedded_setting` 残留旧模式值、应用继续按旧模式跑 → `applyAppModes` 对 OFF 翻回 0
 - autoui 规则全部关闭后旧云控文件不清理（同开机周期内禁用无效）→ 本开机注入过时删除云控文件并热重载；删除恒假的版本门槛死代码（`version <= LOCAL` 永不成立）
 - `embeddingAttrsOf` 的 splitRatio 无数值过滤（非数字直接进系统文件）→ 与 scaleMode/adaptCutout 同款过滤
 - `AppRule.fromJson` 三个比例档可同时为 true → 按 applyAppModes 同一优先级（4:3>16:9>全屏）归一
 - `AutoUiCloudInjector` 直接全量覆盖 autoui 云控文件，`updateAutoUICloudConfigFile` 内部无合并（反编译证实为 `new FileOutputStream` 截断写入）→ 注入前读回云控文件已有条目、重建 `PackageRule` 作合并底，再叠加模块条目；base 键参与指纹，云控被外部改写时不再被跳过
+- Android 17（OS4.x）`MiuiParsingEmbeddedRule.loadPackage` 由旧版 1 参改为**无参**，`Reflect.method(..., "loadPackage", 1)` 抛 `NoSuchMethodException` 被 `runCatching` 吞掉 → `embeddedRule` 恒为 null，表现为「平行窗口/全屏规则保存后不落盘、应用模式也不翻转」；fixed 侧 `loadLocalFixOrientationRuleXML()` 本身无参不受影响，故只有 embedding 分支失效 → 改为 `Reflect.findMethods` 按方法名取参数最少的重载
+- `XLog` 曾用自定义 tag，被 libxposed 日志框架过滤，LSPosed 管理器里看不到任何模块日志（排查时误判为「hook 没运行」）→ tag 一律传 `null`
 
 **真机取证（2026-10-09，实体机 `93fb88b`，adb + MT MCP 只读）：**
 
@@ -1045,7 +1096,7 @@ AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug
 - autoui 侧确认为**未合并的全量覆盖**：`/data/system/cloudFeature_autoui_list.xml` 实测仅 179B / 1 条；固件 `/product/etc/autoui_list.xml` 为 5070B、根标签 `packageRules`、含 bili/知乎/快手多条带 `<activity>/<view>` 子树的规则，均未出现在云控文件中
 - `MiuiParsingAutoUI.loadPackage`（反编译 `/system_ext/framework/miui-services.autoui.jar`）两条路径**互斥 return**：`mLastCloudConfigVersion > 0 && >= mLocalDataVersion` 时只读云控且直接返回，固件被整体跳过；云控路径 `parsePackageXml` 只解析 6 个平铺属性，**无法表达固件那种 `<activity>/<view>` 子树**（该能力在 `PackageRule2`/`rule2` 段），故固件条目在云控生效期间不可恢复
 - `/data/system/` 无 `cloudFeature_embedded_rules_list.xml`（当前无 embedding 规则）；反射目标 `mEmbeddedRule`/`mFixOriController`/`createSetting`/`onAppUiModeChanged`/`updatePackageConfigFromCloud`/`updateFixedOrientationFromCloud`/`isProjection`/`mIsProjection` 在真机 jar 中全部存在
-- 运行时日志通道：`XLog` 走 `XposedBridge.log`（LSPosed 通道），`logcat` 抓不到；`/data/adb/lspd/log/` 无相关记录，无法用日志验证运行时行为
+- 运行时日志通道：`XLog` 走 libxposed `XposedInterface.log`（LSPosed 模块日志页面可见），`logcat` 抓不到
 
 **行为变化：** 布尔参数非法值由「静默置 true」改为报错；AI `set_app_rule` 不再强制启用已有规则；MCP 通知改回 202；OFF 模式会显式翻转系统 mode=0；其余为错误路径修复，正常路径行为不变。
 
@@ -1120,3 +1171,22 @@ AI 助手（`AiToolExecutor`）与 MCP 服务器（`McpServer`）共用的 debug
 **验证：** `gradlew assembleDebug assembleRelease` BUILD SUCCESSFUL（含 `lintVitalAnalyzeRelease`）。首次构建暴露 8 处编译错误并已修复：① 三个缓存子类在构造参数位置前向引用 `MAX_ENTRIES` → 常量提为文件级 `private const val`；② 子类 `putAll`/原名与基类同名遮蔽 → 改 `putForPackage`（6 处调用点同步）；③ `AiChatActivity` 缺 `androidx.core.content.ContextCompat` 导入。
 
 **遗留：** 缓存无失效策略（应用更新后 Activity 集合变化时旧条目仍在，直到被 LRU 淘汰）；聊天缩略图 bind 同步解码（性能项，未处理）。
+
+---
+
+### 本地模型接入支持（2026-10-22）— 允许明文 HTTP 与免密钥
+
+**背景：** 本地/局域网模型服务（Ollama、LM Studio、vLLM 等）通常只提供 `http://` 明文接口且不校验密钥；此前 `targetSdk=35` 默认禁明文、UI 强制密钥非空，导致本地模型无法接入。
+
+**修改：**
+
+| 文件 | 变更 |
+|------|------|
+| `app/src/main/AndroidManifest.xml` | `<application>` 增加 `android:usesCleartextTraffic="true"`，放行 `http://` 请求（否则抛 `Cleartext HTTP traffic not permitted`） |
+| `app/.../ai/AiClient.kt` | `openPost` 仅在密钥非空时设置 `Authorization` 头；`testConnection` 移除「API 密钥为空」前置校验（仅校验地址与模型 ID） |
+| `app/.../ui/MainActivity.kt` | `showModelConfigDialog` 的测试与保存门禁均只校验 API 地址 + 模型 ID，密钥可留空 |
+| `res/values/strings.xml` | `ai_model_api_base_hint` 补充本地地址示例（`http://192.168.1.5:11434/v1`）；`ai_model_key_hint` 标注「本地模型可留空」；`ai_model_test_empty` 文案同步去掉密钥 |
+
+**行为变化：** 云端模型仍需填密钥才能正常鉴权（请求头逻辑未变）；本地服务可零密钥接入。安全性上明文流量全局放开，属于本地调试场景的取舍。
+
+**验证：** `gradlew :app:compileDebugKotlin --offline` 通过。

@@ -19,12 +19,12 @@ object ModelManager {
         val apiBase: String,
         val modelId: String,
         val apiKey: String,
-        val maxInputTokens: Int = 131072,
-        val maxOutputTokens: Int = 16384,
-        val toolRounds: Int = 25,
-        val temperature: Float = 0.4f,
-        val topP: Float = 0.95f,
-        val topK: Int = 20,
+        val maxInputTokens: Int = 128000,
+        val maxOutputTokens: Int = 12800,
+        val toolRounds: Int = 120,
+        val temperature: Float = 0.1f,
+        val topP: Float = 1.0f,
+        val topK: Int = 35,
         val enabled: Boolean = true
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
@@ -49,12 +49,12 @@ object ModelManager {
                 apiBase = o.optString("apiBase", ""),
                 modelId = o.optString("modelId", ""),
                 apiKey = o.optString("apiKey", ""),
-                maxInputTokens = o.optInt("maxInputTokens", 131072),
-                maxOutputTokens = o.optInt("maxOutputTokens", 16384),
-                toolRounds = o.optInt("toolRounds", 25),
-                temperature = o.optDouble("temperature", 0.4).toFloat(),
-                topP = o.optDouble("topP", 0.95).toFloat(),
-                topK = o.optInt("topK", 20),
+                maxInputTokens = o.optInt("maxInputTokens", 128000),
+                maxOutputTokens = o.optInt("maxOutputTokens", 12800),
+                toolRounds = o.optInt("toolRounds", 120),
+                temperature = o.optDouble("temperature", 0.3).toFloat(),
+                topP = o.optDouble("topP", 1.0).toFloat(),
+                topK = o.optInt("topK", 35),
                 enabled = o.optBoolean("enabled", true)
             )
         }

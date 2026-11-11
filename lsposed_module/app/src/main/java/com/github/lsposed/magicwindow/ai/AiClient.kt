@@ -116,7 +116,7 @@ class AiClient(private val context: Context) {
         modelId: String,
         apiKey: String
     ): String = withContext(Dispatchers.IO) {
-        if (apiKey.isEmpty()) return@withContext "错误：API 密钥为空"
+        // 本地模型服务（Ollama / LM Studio 等）通常不校验密钥，允许留空
         if (apiBase.isEmpty()) return@withContext "错误：API 地址为空"
         if (modelId.isEmpty()) return@withContext "错误：模型 ID 为空"
 
@@ -165,7 +165,8 @@ class AiClient(private val context: Context) {
             requestMethod = "POST"
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", accept)
-            setRequestProperty("Authorization", "Bearer $apiKey")
+            // 本地模型服务通常无密钥，空值时不发 Authorization，避免被部分网关判定为非法凭证
+            if (apiKey.isNotEmpty()) setRequestProperty("Authorization", "Bearer $apiKey")
             connectTimeout = 30_000
             readTimeout = 90_000
             doOutput = true
