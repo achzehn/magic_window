@@ -27,3 +27,10 @@
 - Material Chip 的 `chipMinHeight`（视觉高度）与触摸热区是两回事：`ensureMinTouchTargetSize=true` 时实际点击区会扩到 48dp，不要为了“看起来不臃肿”把高度压到 32dp 以下，否则 48dp 热区规范失守。
 - `RecyclerView.layoutAnimation` 只在 `scheduleLayoutAnimation()` 之后的那次布局生效，必须在数据提交前调度；数据到齐后再调度会白等一次布局，动画不播放。
 - 给带 `OnClickListener` 的卡片 / 列表行加按压缩放时，`OnTouchListener` 必须 `return false`，否则点击、长按、无障碍点击都会被吞掉（Lint 报 `ClickableViewAccessibility` 时按此排查）。
+
+## 发布 / GitHub Actions
+
+- 仓库必须同时保留 `lsposed_module/gradlew`（LF 换行、可执行位）与 `gradlew.bat`：工作流在 ubuntu runner 上 `chmod +x lsposed_module/gradlew` 后执行 `./gradlew`，只留 `.bat` 会让 CI 在「Grant execute permission」直接失败。
+- `KEYSTORE_BASE64` Secret 必须与 `lsposed_module/magicwindow.keystore` 同步：Secret 陈旧会导致 CI 报 `Failed PKCS12 integrity checking`，而本地构建正常，容易误判为代码问题。更新命令：`[Convert]::ToBase64String([IO.File]::ReadAllBytes("...\magicwindow.keystore")) | gh secret set KEYSTORE_BASE64`。
+- `softprops/action-gh-release` 偶发 `Too many retries`：此时构建与 artifact 上传已成功，仅创建 Release 失败，用 `gh run download` 取产物后 `gh release create <tag> <apk> --notes-file ...` 补发即可，不必重跑整条流水线（重跑会用 TODO 模板覆盖已核对过的说明）。
+- 发布产物核对：`aapt2 dump badging app-release.apk` 必须显示 `versionCode` / `versionName` 与 `app/build.gradle.kts` 一致。
