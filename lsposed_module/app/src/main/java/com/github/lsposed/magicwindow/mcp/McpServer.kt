@@ -7,6 +7,7 @@ import com.github.lsposed.magicwindow.common.model.AppRule
 import com.github.lsposed.magicwindow.data.ConfigRepository
 import com.github.lsposed.magicwindow.data.MainPageResolver
 import com.github.lsposed.magicwindow.data.RuleDiagnostics
+import com.github.lsposed.magicwindow.data.RulePresets
 import com.github.lsposed.magicwindow.data.SystemRuleSource
 import org.json.JSONArray
 import org.json.JSONObject
@@ -332,11 +333,11 @@ object McpServer {
     /** 与 AiToolExecutor 同名同义的 12 个工具；schema 用 MCP 的 inputSchema 格式 */
     private fun toolsList(): JSONArray = JSONArray()
         .put(toolDef(
-            "search_apps", "按关键词搜索已安装的应用。返回应用的包名、名称、是否系统应用、命中的系统内置规则名单。",
+            "search_apps", "按关键词搜索已安装的应用。返回应用的包名、名称、是否系统应用、是否被系统禁用、命中的系统内置规则名单。",
             strSchema(required = listOf("keyword" to "搜索关键词，可以是应用名或包名的一部分"),
                 optional = listOf("limit" to "返回结果数量上限，默认 10")))
         ).put(toolDef(
-            "get_app_activities", "获取指定应用的全部 Activity 页面列表（启动页排最前），用于确定哪些页面参与分屏。返回 recommended_main（推荐主页面类名）与 recommended_source（system/keyword/launcher）。",
+            "get_app_activities", "获取指定应用的全部 Activity 页面列表（启动页排最前）。返回 launcher（启动器入口 Activity，平行窗口只填它）与 recommended_main（仅在 launcher 为空时使用）。系统禁用应用 system_disabled=true，不支持修改。",
             strSchema(required = listOf("package_name" to "应用包名")))
         ).put(toolDef(
             "get_current_rules", "查看当前已配置的所有应用规则（包名/启停/模式）。",
@@ -345,16 +346,17 @@ object McpServer {
             "get_app_rule", "查看某个应用的详细规则配置（完整字段）。",
             strSchema(required = listOf("package_name" to "应用包名")))
         ).put(toolDef(
-            "set_app_rule", "为某个应用创建或更新规则，保存后立即热生效。参数与 AI 助手侧 set_app_rule 完全一致（扁平 snake_case）。",
+            "set_app_rule", "为某个应用创建或更新规则，保存后立即热生效。参数与 AI 助手侧 set_app_rule 完全一致（扁平 snake_case）。被系统禁用的应用不支持修改。",
             strSchema(required = listOf(
                 "package_name" to "应用包名",
-                "mode" to "模式：embedding=平行窗口, fixedOrientation=固定横屏, fullScreen=通用全屏, off=不处理"),
+                "mode" to "模式：embedding=平行窗口, fixedOrientation=固定横屏, fullScreen=通用全屏, off=不处理。优先级：固定横屏 > 平行窗口 > 通用全屏，同一应用只选一套"),
                 optional = listOf(
-                    "activity_rule" to "参与分屏的页面（逗号分隔的 Activity 全类名，不带模式码），仅 embedding",
-                    "split_pair_rule" to "左右栏配对，格式「左栏:*」，多对用逗号分隔，仅 embedding",
-                    "split_ratio" to "左栏宽度占比 0.1~0.9，仅 embedding",
-                    "placeholder" to "右栏默认占位页面，格式「主页面全类名:占位页面全类名」，仅 embedding",
-                    "transition_rules" to "不参与分屏的过渡页面（逗号分隔），仅 embedding",
+                    "entry_activity" to "启动器入口 Activity（平行窗口唯一要填的页面）。不传时自动取 launcher，并按最小策略写成 activityRule=入口、splitPairRule=入口:*",
+                    "activity_rule" to "仅 embedding，建议省略；传了也会被最小策略收敛为入口 Activity",
+                    "split_pair_rule" to "仅 embedding，建议省略；格式「入口 Activity:*」，传了也会被收敛",
+                    "split_ratio" to "左栏宽度占比 0.1~0.9，仅 embedding，最小配置下不要传",
+                    "placeholder" to "右栏默认占位页面，格式「主页面全类名:占位页面全类名」，仅用户明确要求时使用",
+                    "transition_rules" to "不参与分屏的过渡页面（逗号分隔），仅用户明确要求时使用，仅 embedding",
                     "support_full_size" to "是否可放大到整屏，true/false，仅 embedding",
                     "is_show_divider" to "是否显示分割线，true/false，仅 embedding",
                     "force_portrait_activity" to "始终竖着显示的页面，格式「包名/类名」，仅 embedding",
@@ -479,6 +481,10 @@ object McpServer {
     private fun setAppRule(args: JSONObject): JSONObject {
         val pkg = args.optString("package_name", "")
         if (pkg.isEmpty()) return toolText("package_name 不能为空")
+        // 系统禁用应用只出现在「被系统禁用」分组，AI/MCP 一律不得改写
+        if (SystemRuleSource.isFixedDisabled(pkg)) {
+            return toolText("$pkg 被系统禁用（固定横屏 disable=true），只展示在「被系统禁用」分组，不支持修改")
+        }
         val base = ConfigRepository.rule(pkg)?.toJson() ?: JSONObject()
         base.put("packageName", pkg)
         args.optString("mode", "").takeIf { it.isNotEmpty() }?.let { modeStr ->
@@ -518,8 +524,14 @@ object McpServer {
             up.keys().forEachRemaining { key -> if (key != "packageName") base.put(key, up.get(key)) }
         }
         val rule = AppRule.fromJson(base)
+        // 平行窗口最小策略：只保留入口 Activity，可选属性一并清空
+        val minimized = RulePresets.minimizeEmbedding(
+            appContext, rule,
+            args.optString("entry_activity").takeIf { it.isNotEmpty() }
+        )
         ConfigRepository.saveRule(rule)
         return JSONObject().put("saved", true)
+            .put("minimal_embedding", minimized)
             .put("rule", ConfigRepository.rule(pkg)?.toJson() ?: rule.toJson())
     }
 
@@ -624,6 +636,7 @@ object McpServer {
                         .put("packageName", info.packageName)
                         .put("label", label)
                         .put("isSystem", (info.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0)
+                        .put("systemDisabled", SystemRuleSource.isFixedDisabled(info.packageName))
                         .put("builtin", JSONArray(SystemRuleSource.kindsOf(info.packageName).map { it.name }))
                 )
             }
@@ -641,7 +654,9 @@ object McpServer {
         // 主页面推荐：系统内置规则优先，其次类名关键词（launcher 常是启动页，仅兜底）
         val resolved = MainPageResolver.resolve(pkg, names, launcher)
         return JSONObject().put("package_name", pkg)
+            .put("system_disabled", SystemRuleSource.isFixedDisabled(pkg))
             .put("launcher", launcher ?: JSONObject.NULL)
+            .put("entry_activity", launcher ?: JSONObject.NULL)
             .put("recommended_main", resolved?.first ?: JSONObject.NULL)
             .put("recommended_source", resolved?.second ?: JSONObject.NULL)
             .put("activities", JSONArray(names))

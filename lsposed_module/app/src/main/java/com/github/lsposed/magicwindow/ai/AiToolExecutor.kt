@@ -7,6 +7,7 @@ import com.github.lsposed.magicwindow.common.model.WindowMode
 import com.github.lsposed.magicwindow.data.ConfigRepository
 import com.github.lsposed.magicwindow.data.MainPageResolver
 import com.github.lsposed.magicwindow.data.RuleDiagnostics
+import com.github.lsposed.magicwindow.data.RulePresets
 import com.github.lsposed.magicwindow.data.SystemRuleSource
 import com.github.lsposed.magicwindow.mcp.McpServer
 import org.json.JSONArray
@@ -38,7 +39,7 @@ object AiToolExecutor {
 
         arr.put(makeTool(
             "get_app_activities",
-            "获取指定应用的全部 Activity 页面列表，用于确定哪些页面参与分屏。返回 recommended_main（推荐主页面类名）与 recommended_source（来源：system/keyword/launcher），每个页面带 role（左栏/右栏/跳过）；启动页标记 is_launcher。优先用 recommended_main 作 splitPairRule 左栏。",
+            "获取指定应用的全部 Activity 页面列表。返回 launcher（启动器入口 Activity，平行窗口只填它）与 recommended_main（推荐主页面，仅在 launcher 为空时使用），每个页面带 role（左栏/右栏/跳过）。",
             listOf("package_name" to "应用包名，如 tv.danmaku.bili")
         ))
 
@@ -64,15 +65,16 @@ object AiToolExecutor {
             "set_app_rule",
             "为某个应用设置规则。保存后立即生效，无需重启。这是最核心的工具。",
             listOf(
-                "package_name" to "应用包名",
-                "mode" to "模式：embedding=平行窗口, fixedOrientation=固定横屏, fullScreen=通用全屏, off=不处理"
+                "package_name" to "应用包名，不能是被系统禁用的应用",
+                "mode" to "模式：embedding=平行窗口, fixedOrientation=固定横屏, fullScreen=通用全屏, off=不处理。优先级：固定横屏 > 平行窗口 > 通用全屏，同一应用只选一套"
             ),
             listOf(
-                "activity_rule" to "参与分屏的页面（逗号分隔的 Activity 全类名，不带模式码），仅 embedding",
-                "split_pair_rule" to "左右栏配对，格式「左栏:*」，多对用逗号分隔，仅 embedding",
-                "split_ratio" to "左栏宽度占比 0.1~0.9，仅 embedding",
-                "placeholder" to "右栏默认占位页面，格式「主页面全类名:占位页面全类名」，冒号左边必须是主页面，仅 embedding",
-                "transition_rules" to "不参与分屏的过渡页面（逗号分隔，如启动页/登录页），仅 embedding",
+                "entry_activity" to "启动器入口 Activity（平行窗口唯一要填的页面）。不传时工具会自动取 launcher，并按最小策略写成 activityRule=入口、splitPairRule=入口:*",
+                "activity_rule" to "仅 embedding，建议省略；传了也会被最小策略收敛为入口 Activity",
+                "split_pair_rule" to "仅 embedding，建议省略；格式「入口 Activity:*」，传了也会被收敛",
+                "split_ratio" to "左栏宽度占比 0.1~0.9，仅 embedding，最小配置下不要传",
+                "placeholder" to "右栏默认占位页面，格式「主页面全类名:占位页面全类名」，仅用户明确要求时使用",
+                "transition_rules" to "不参与分屏的过渡页面（逗号分隔），仅用户明确要求时使用，仅 embedding",
                 "support_full_size" to "是否可放大到整屏，true/false，仅 embedding",
                 "is_show_divider" to "是否显示分割线，true/false，仅 embedding",
                 "force_portrait_activity" to "始终竖着显示的页面，格式「包名/类名」如 com.example.app/.ui.ScanActivity，多个逗号分隔，仅 embedding",
@@ -254,6 +256,7 @@ object AiToolExecutor {
                 .put("package_name", triple.first)
                 .put("label", triple.second)
                 .put("is_system", triple.third)
+                .put("system_disabled", SystemRuleSource.isFixedDisabled(triple.first))
                 .put("builtin_rules", JSONArray(builtin)))
         }
         return JSONObject()
@@ -298,7 +301,9 @@ object AiToolExecutor {
 
         return JSONObject()
             .put("package_name", pkg)
+            .put("system_disabled", SystemRuleSource.isFixedDisabled(pkg))
             .put("launcher", launcher ?: JSONObject.NULL)
+            .put("entry_activity", launcher ?: JSONObject.NULL)
             .put("recommended_main", resolved?.first ?: JSONObject.NULL)
             .put("recommended_source", resolved?.second ?: JSONObject.NULL)
             .put("total", names.size)
@@ -348,6 +353,10 @@ object AiToolExecutor {
     private fun setAppRule(context: Context, args: JSONObject): String {
         val pkg = args.optString("package_name", "")
         if (pkg.isEmpty()) return errorResult("package_name 不能为空")
+        // 系统禁用应用只出现在「被系统禁用」分组，AI/MCP 一律不得改写
+        if (SystemRuleSource.isFixedDisabled(pkg)) {
+            return errorResult("$pkg 被系统禁用（固定横屏 disable=true），只展示在「被系统禁用」分组，不支持修改")
+        }
 
         val modeStr = args.optString("mode", "")
         val mode = when (modeStr) {
@@ -384,13 +393,25 @@ object AiToolExecutor {
         args.optString("autoui_activity_rule").takeIf { it.isNotEmpty() }?.let { existing.autoUiActivityRule = it }
         args.optString("autoui_skipped_activity_rule").takeIf { it.isNotEmpty() }?.let { existing.autoUiSkippedActivityRule = it }
 
+        // 平行窗口最小策略：只保留启动器入口 Activity，可选属性一并清空。
+        // 多页面/推荐主页面配置实测会让分屏匹配不到用户实际打开的页面。
+        val minimized = RulePresets.minimizeEmbedding(
+            context, existing,
+            args.optString("entry_activity").takeIf { it.isNotEmpty() }
+        )
+
         ConfigRepository.saveRule(existing)
 
         return JSONObject()
             .put("success", true)
             .put("package_name", pkg)
             .put("mode", mode.key)
-            .put("message", "已保存 ${pkg} 的规则，模式为 ${mode.key}")
+            .put("minimal_embedding", minimized)
+            .put(
+                "message",
+                if (minimized) "已保存 ${pkg} 的规则，模式为 ${mode.key}；平行窗口已收敛为入口 Activity 最小配置"
+                else "已保存 ${pkg} 的规则，模式为 ${mode.key}"
+            )
             .toString()
     }
 

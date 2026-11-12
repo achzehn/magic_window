@@ -5,6 +5,7 @@
 
     <!-- 主页 -->
     <string name="status_active">模块已生效</string>
+    <string name="status_checking">正在检测模块状态…</string>
     <string name="status_inactive">模块还没生效：请在 LSPosed 里打开本模块，并勾选「系统框架」</string>
     <string name="status_configured">已经设置了 %1$d 个应用</string>
     <string name="section_apps">应用设置</string>
@@ -24,6 +25,7 @@
     <string name="filter_disabled">被系统禁用</string>
     <string name="filter_user">已安装</string>
     <string name="filter_system">系统应用</string>
+    <string name="disabled_app_readonly">该系统已禁用此应用，仅可查看，不支持修改</string>
     <string name="batch_title">一次设置选中的 %1$d 个应用</string>
     <string name="batch_apply">套用</string>
     <string name="batch_clear">清除设置</string>
@@ -84,7 +86,7 @@
     <string name="force_edit_title">这个应用被系统禁用了</string>
     <string name="force_edit_desc">系统明确禁用了该应用的固定横屏。默认不可修改；打开开关后可强制改写，可能与系统策略冲突。</string>
     <string name="force_edit_unlock">强制修改</string>
-    <string name="locked_hint">已锁定：打开上方「强制修改」开关才能编辑</string>
+    <string name="locked_hint">该系统已禁用此应用，规则仅可查看，不支持修改</string>
 
     <!-- MCP 调试服务器 -->
     <string name="mcp_title">AI 调试服务（MCP）</string>

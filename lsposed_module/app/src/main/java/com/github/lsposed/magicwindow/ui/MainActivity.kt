@@ -9,6 +9,8 @@ import android.content.pm.PackageManager
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -40,6 +42,7 @@ import com.github.lsposed.magicwindow.ai.AiChatActivity
 import com.github.lsposed.magicwindow.data.ConfigExporter
 import com.github.lsposed.magicwindow.data.ConfigRepository
 import com.github.lsposed.magicwindow.data.SystemRuleSource
+import com.github.lsposed.magicwindow.data.XposedServiceBridge
 import com.github.lsposed.magicwindow.databinding.ActivityMainBinding
 import com.github.lsposed.magicwindow.mcp.McpServer
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -52,9 +55,23 @@ class MainActivity : AppCompatActivity() {
         /** 进程内缓存：root 一旦确认成功，后续进页面不再弹 su 授权 */
         @Volatile
         private var rootConfirmed = false
+
+        /**
+         * 冷启动时等待框架服务绑定的宽限期。
+         * 只在前台计时，页面不可见时立即取消，后台零开销。
+         */
+        private const val STATUS_GRACE_MS = 2500L
     }
 
     private lateinit var binding: ActivityMainBinding
+
+    private val statusHandler = Handler(Looper.getMainLooper())
+
+    /** 宽限期到点仍未绑定 → 判定未生效（会由服务回调纠正，慢绑定不会误报太久） */
+    private val statusGrace = Runnable {
+        XposedServiceBridge.confirmInactive()
+        renderStatus()
+    }
 
     /** 桌面图标入口，停用它就等于隐藏图标 */
     private val launcherAlias by lazy {
@@ -99,7 +116,10 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         setSupportActionBar(binding.toolbar)
 
-        // 已确认过 root（本进程）或后台预热已通过 su 读取云控，直接进入
+        // 系统内置/云控规则预读：只在真正打开界面时触发（后台线程，不阻塞首帧）
+        SystemRuleSource.preload()
+
+        // 已确认过 root（本进程）或规则预读已通过 su 取得权限，直接进入
         if (rootConfirmed || SystemRuleSource.rootAvailable || hasRootIndicatorFile()) {
             rootConfirmed = true
             setupUi()
@@ -759,8 +779,14 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         // 框架服务绑定是异步的：进入页面时可能还没绑上，绑定/断开后立即重绘状态
-        com.github.lsposed.magicwindow.data.XposedServiceBridge.onStateChanged = { renderStatus() }
+        XposedServiceBridge.onStateChanged = { renderStatus() }
         renderStatus()
+        // 历史状态未知或上次已生效时，先按「检测中」展示，宽限期内等框架回调；
+        // 只有上次已确认「未生效」才无需再等，直接显示失败文案
+        if (!ModuleStatus.isModuleActive() && XposedServiceBridge.lastKnownActive != false) {
+            statusHandler.removeCallbacks(statusGrace)
+            statusHandler.postDelayed(statusGrace, STATUS_GRACE_MS)
+        }
         renderMcpState()
         // 从 AI 对话页切换模型返回后，同步刷新「当前模型」显示
         renderAiModelStatus()
@@ -768,7 +794,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        com.github.lsposed.magicwindow.data.XposedServiceBridge.onStateChanged = null
+        XposedServiceBridge.onStateChanged = null
+        // 页面不可见就不需要再等绑定，取消计时，后台不再持有任何回调
+        statusHandler.removeCallbacks(statusGrace)
     }
 
     private fun renderMcpState() {
@@ -785,13 +813,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderStatus() {
         val active = ModuleStatus.isModuleActive()
+        // 未绑定但历史状态未知/曾生效：框架绑定还没到，显示「检测中」，
+        // 避免每次冷启动都把红色失败文案甩到用户眼前再瞬间变绿
+        val checking = !active && XposedServiceBridge.lastKnownActive != false
         binding.tvStatus.text = getString(
-            if (active) R.string.status_active else R.string.status_inactive
+            when {
+                active -> R.string.status_active
+                checking -> R.string.status_checking
+                else -> R.string.status_inactive
+            }
         )
         binding.tvStatus.setTextColor(
             ContextCompat.getColor(
                 this,
-                if (active) R.color.ok_green else R.color.conflict_error
+                when {
+                    active -> R.color.ok_green
+                    checking -> R.color.text_secondary
+                    else -> R.color.conflict_error
+                }
             )
         )
         binding.tvStatusDesc.text =

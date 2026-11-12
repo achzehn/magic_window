@@ -215,22 +215,23 @@ App 侧激活判定：XposedServiceHelper.registerListener → onServiceBind 即
 
 | 文件 | 职责 |
 |------|------|
-| `MagicWindowApp.kt` | Application：初始化 `ConfigRepository`、注册 `XposedServiceBridge.onBind` 补推规则（覆盖「保存时服务未就绪」与框架重启后的失同步）、后台预热 `SystemRuleSource`（v2.3.0 起移除 DynamicColors，固定使用品牌色板） |
-| `ModuleStatus.kt` | 激活状态探针：`isModuleActive()` 读 `XposedServiceBridge.isActive`（框架服务是否已绑定）。现代 API 下模块 App 不再被 hook，不能再用 hook 回显 |
+| `MagicWindowApp.kt` | Application：初始化 `ConfigRepository` 与 `XposedServiceBridge`（载入上次确认的激活状态）、注册 `XposedServiceBridge.onBind` 补推规则（覆盖「保存时服务未就绪」与框架重启后的失同步）；不再预热 `SystemRuleSource`，进程被后台拉起时零 su/IO 开销（v2.3.0 起移除 DynamicColors，固定使用品牌色板） |
+| `ModuleStatus.kt` | 激活状态探针：`isModuleActive()` 读 `XposedServiceBridge.isActive`（框架服务是否已绑定）。现代 API 下模块 App 不再被 hook，不能再用 hook 回显；绑定是异步投递的，首帧判定见 `MainActivity.renderStatus()` |
 | **ui/** | |
 | `MainActivity.kt` (322行) | 主界面：模块状态显示、应用列表入口、MCP 服务器开关/配置（端口/令牌/客户端 JSON）、隐藏桌面图标、配置导入导出 |
-| `AppListActivity.kt` (211行) | 应用列表：搜索/筛选（全部/已设置/被系统禁用/已安装/系统应用）、长按进入多选批量操作（套用模式/清除设置） |
-| `AppDetailActivity.kt` (979行) | 应用详情：完整的 45+ 配置项表单，支持简单/高级切换、模式互斥联动、页面抓取填充、内置规则继承、系统禁用应用锁定、单规则导出导入 |
+| `AppListActivity.kt` (211行) | 应用列表：搜索/筛选（全部/已设置/被系统禁用/已安装/系统应用）、长按进入多选批量操作（套用模式/清除设置）。被系统禁用的应用只在「被系统禁用」分组出现，且不参与多选/批量修改 |
+| `AppDetailActivity.kt` (979行) | 应用详情：完整的 45+ 配置项表单，支持简单/高级切换、模式互斥联动、页面抓取填充、内置规则继承、单规则导出导入。被系统禁用的应用整页只读（模式/开关/保存/恢复默认/导入全部禁用，不再提供强制修改入口） |
 | `AppAdapter.kt` (145行) | RecyclerView 适配器：异步图标加载（LIFO 队列 + 缓存）、内置徽标/模式标签、多选模式 |
 | `UiKit.kt` | 动态表单工具：`section`（分组卡片）、`chipBox/chip`（可勾选标签）、`textRow`（文本输入）、`dropdownRow`（下拉选择）、`note`（说明文字）、`sliderRow`（滑块） |
 | `ModeUi.kt` | 模式文案与配色映射 |
 | `BuiltinUi.kt` | 「系统已内置」徽标文案生成 |
 | **data/** | |
 | `ConfigRepository.kt` | 配置仓储：本地 SharedPreferences（`MODE_PRIVATE`）读写规则 CRUD；保存成功后经 `pushToHook()` 写入远端首选项；远端未就绪时仅落本地，待服务绑定后补推 |
-| `XposedServiceBridge.kt` | 框架服务桥：`XposedServiceHelper` 监听绑定状态（激活探针）+ 通过 `XposedService.getRemotePreferences` 写配置；`onStateChanged` 通知界面重绘激活状态 |
+| `XposedServiceBridge.kt` | 框架服务桥：`XposedServiceHelper` 监听绑定状态（激活探针）+ 通过 `XposedService.getRemotePreferences` 写配置；`onStateChanged` 通知界面重绘激活状态；`lastKnownActive` 持久化上次确认结果（`null`=从未确认），供冷启动首帧区分「检测中/未生效」；`writeRules` 内容一致时不重写，避免触发 hook 侧重载 |
 | `AppItem.kt` | 应用列表项模型 + `AppLoader`（按包名/标签排序加载已安装应用） |
 | `SystemRuleSource.kt` (343行) | 系统规则读取器：通过 root 读取 `/data/system/` 云控文件 + `/product/etc/` 本地名单，按 `dataVersion` 比较选择生效版本；提供 `applyDefaults()` 用系统内置值填充 AppRule |
 | `MainPageResolver.kt` | 主页面（左栏）判定：为 `splitPairRule` / `activityRule` 提供候选类名。判定顺序 系统内置规则反查（`splitPairRule` 首个左栏）> 类名关键词（Main/Home/Index > List/Search/Tab）> launcher 兜底。排除词按驼峰词元整词匹配（避免 `readassistant` 误命中 `Ad`），启动页词元 `Splash/Launch` 降权而非硬排除。统计依据：真机 3850 个左栏中 `Main` ×1331 / `Home` ×580。`roleOf()` 供工具返回页面角色 |
+| `RulePresets.kt` | 平行窗口最小配置策略（AI/MCP 写规则专用）：`entryActivity()` 取启动器入口 Activity；`minimizeEmbedding()` 把 `activityRule` / `splitPairRule` 收敛为「入口 Activity」与「入口 Activity:*」，并清空 `placeholder` / `transitionRules` / `splitRatio`。UI 手动编辑不经过此收敛 |
 | `ConfigExporter.kt` | 配置导入导出（version 1/2 兼容），支持 v1 的 `globalConfig` 字段兼容 |
 | **mcp/** | |
 | `McpServer.kt` (442行) | 内置 MCP 调试服务器（Streamable-HTTP JSON-RPC 2.0），提供 8 个工具：`list_rules` / `get_rule` / `set_rule` / `delete_rule` / `get_system_rule` / `search_apps` / `list_activities` / `export_rules`。支持令牌鉴权、端口配置、客户端配置 JSON 生成 |
@@ -364,12 +365,12 @@ object EmbeddedFixedCloudInjector {
 
 | 工具 | 说明 |
 |------|------|
-| `search_apps` | 按关键词搜索已安装应用（含命中的系统内置规则名单，60s 缓存） |
-| `get_app_activities` | 列出某个应用的全部 Activity |
+| `search_apps` | 按关键词搜索已安装应用（含命中的系统内置规则名单，60s 缓存；带 `systemDisabled` 标记） |
+| `get_app_activities` | 列出某个应用的全部 Activity（返回 `launcher` / `entry_activity` / `recommended_main` 与 `system_disabled`） |
 | `get_current_rules` | 列出本模块已配置的全部应用规则（完整 toJson） |
 | `get_app_rule` | 读取某个应用的规则 |
 | `get_system_rules` | 读取系统内置规则（三个名单的原始属性） |
-| `set_app_rule` | 创建或更新规则（增量更新，保存后立即热生效） |
+| `set_app_rule` | 创建或更新规则（增量更新，保存后立即热生效）。被系统禁用的应用直接拒绝；平行窗口经 `RulePresets` 收敛为入口 Activity 最小配置，返回 `minimal_embedding` |
 | `delete_app_rule` | 删除规则 |
 | `launch_app` | 启动应用 |
 | `export_rules` | 导出规则为本地 JSON 文件（v2 格式） |
@@ -379,6 +380,20 @@ object EmbeddedFixedCloudInjector {
 | `get_module_status` | 模块整体状态 |
 
 接入方式：`POST http://<IP>:8765/mcp`，JSON-RPC 2.0 协议。
+
+### 5.7 平行窗口最小配置策略（`RulePresets`）
+
+AI 助手与 MCP 的 `set_app_rule` 共用同一套规则生成策略：平行窗口规则只保留启动器入口 Activity 一对。
+
+| 项 | 规则 |
+|------|------|
+| `entryActivity(context, pkg)` | 取 `PackageManager.getLaunchIntentForPackage()` 的入口 Activity；无启动入口返回 null |
+| `minimizeEmbedding(context, rule, entryOverride)` | 入口 Activity 已是 `activityRule` 且是 `splitPairRule` 左栏时原样返回 false；否则改写为 `activityRule=入口`、`splitPairRule=入口:*`，并清空 `placeholder` / `transitionRules` / `splitRatio`，返回 true |
+| 触发范围 | 仅 `mode=embedding`；UI 手动编辑、导入的既有规则不经过收敛 |
+| 校验联动 | `RuleDiagnostics.validate` 对 embedding 规则检查「入口 Activity 是否同时出现在 activityRule 与 splitPairRule 左栏」，缺失时给 warning |
+
+**为什么最小化**：真机实测 AI 填多页面 / 用 `recommended_main` 代替入口时，规则能落盘但系统匹配不到用户实际打开的页面，平行窗口不触发。
+`get_app_activities` 因此显式返回 `launcher` / `entry_activity`（入口）与 `recommended_main`（仅兜底）。
 
 ---
 
@@ -598,7 +613,7 @@ git push origin v2.4.4
 要点：
 - **不再有** `assets/xposed_init`、Manifest 里的 `xposedmodule` / `xposedminversion` / `xposedscope` 等 meta-data；模块名取 `android:label`，描述取 `android:description`
 - `MainActivity` 保留 `de.robv.android.xposed.category.MODULE_SETTINGS` category —— LSPosed 管理器据此定位模块设置页，与现代 API 不冲突；桌面图标仍由 `LauncherAlias` 提供
-- 激活状态不再靠 hook 回显：`libxposed:service` 的 `XposedProvider` 会绑定框架服务，`XposedServiceHelper.onServiceBind` 即「已激活」
+- 激活状态不再靠 hook 回显：`libxposed:service` 的 `XposedProvider` 会绑定框架服务，`XposedServiceHelper.onServiceBind` 即「已激活」；绑定是异步投递的，冷启动首帧用持久化的上次结果判定（见 14 章 2026-11-12）
 - 配置通道为远端首选项，App 侧可写、hook 侧只读，框架负责变更推送
 - 模块本身不勾选任何被适配的应用——所有注入都发生在 `system_server` 里
 
@@ -616,6 +631,30 @@ git push origin v2.4.4
 ---
 
 ## 14. 近期修改记录
+
+### 平行窗口最小化与系统禁用应用只读（2026-11-12）
+
+**问题**：AI 推荐的平行窗口配置（多页面 activityRule + recommended_main 作 splitPairRule 左栏）保存成功却不触发分屏；系统禁用的应用仍会出现在其他筛选分组并可被改写。
+
+1. 新增 `data/RulePresets.kt`：`entryActivity()` + `minimizeEmbedding()`，AI/MCP 的 `set_app_rule` 在 embedding 模式下自动把 `activityRule` / `splitPairRule` 收敛为启动器入口 Activity 一对，并清空 `placeholder` / `transitionRules` / `splitRatio`；返回体带 `minimal_embedding`。
+2. `AiToolExecutor` / `McpServer`：`set_app_rule` 对 `SystemRuleSource.isFixedDisabled(pkg)` 直接拒绝；`search_apps` / `get_app_activities` 增加 `system_disabled`（MCP 侧 `systemDisabled`），后者增加 `entry_activity`。
+3. `AiSystemPrompt`：补充模块机制与优先级（固定横屏 > 平行窗口 > 通用全屏）、ROM 预置文件只读、系统禁用应用不可修改、平行窗口最小配置与「避免过度修改」原则。
+4. `AppListActivity`：被系统禁用应用只在「被系统禁用」分组出现（ALL/CONFIGURED/USER/SYSTEM 全部排除），不参与长按多选与批量套用/清除。
+5. `AppDetailActivity`：系统禁用应用的「强制修改」入口下线，整页只读（保存/恢复默认/导入一并禁用）。
+6. `RuleDiagnostics`：embedding 规则缺少「入口 Activity 作左栏」时给出 warning，提示改回最小配置。
+
+### 激活状态首帧判定与后台零开销（2026-11-12）
+
+**问题：** 框架服务绑定由 LSPosed 异步投递，晚于 `MainActivity` 首帧；`renderStatus()` 首帧读到 `isActive=false`，于是每次冷启动都会把红色「模块还没生效…」闪一下再跳成绿色，观感像「失败瞬间成功」。
+
+**改法：**
+
+1. `XposedServiceBridge` 新增 `lastKnownActive`（`null` = 从未确认，持久化在 `Constants.PREFS_NAME` 的 `module_last_active`），`onServiceBind` / `onServiceDied` 时更新；`confirmInactive()` 供界面宽限期到点后落盘「未生效」。
+2. `MainActivity.renderStatus()` 改为三态：已绑定 → 绿色「模块已生效」；未绑定且历史状态非「未生效」→ 灰色「正在检测模块状态…」；否则 → 红色失败文案。宽限期 `STATUS_GRACE_MS = 2500` 只在 `onResume` 排程、`onPause` 取消，页面不可见时计时器销毁，后台不保留任何回调。
+3. `writeRules()` 先比对远端当前值，内容一致直接返回，不再每次进程启动都触发 hook 侧重载与云控文件重算。
+4. `SystemRuleSource.preload()` 从 `MagicWindowApp.onCreate` 移到 `MainActivity.onCreate`：只有真正打开界面才拉 su 读云控，进程被框架/系统在后台拉起时不产生 su 与读盘开销。
+
+**效果：** 正常状态进入只有「检测中 → 已生效」的过渡，不再出现红色失败闪动；无界面时模块 App 不起线程、不跑 su、不占用计时器。
 
 ### 移除模型 Top K 设置（2026-11-11）
 
@@ -743,7 +782,7 @@ git push origin v2.4.4
 5. **启动检测重构**（`MainActivity`）：
    - `hasRootIndicatorFile()` 同步检测三家 Root 工具特征目录（`/data/adb/magisk`、`/data/adb/ksu`、`/data/adb/apatch` 等）与传统 su 路径，命中即直接进入，不再误报；
    - 未命中时在后台线程执行 `verifySuGrant()`（`su -c id` 校验 `uid=0`，3 轮退避重试等授权弹窗），UI 显示「正在获取 Root 权限」提示，成功结果在进程内缓存（companion `rootConfirmed`）；
-   - `SystemRuleSource.rootAvailable` 预热成功也作为放行依据。
+   - `SystemRuleSource.rootAvailable` 预读成功（预读在 `MainActivity.onCreate` 触发）也作为放行依据。
 
 6. **云控读取加固**（`SystemRuleSource.readViaRoot()`）：3 次重试（退避 2s/3s）；stdout/stderr 独立线程并发排空，防止大 XML 写满管道导致进程挂死；超时放宽到 20s；输出含分隔标记即认定 su 已授权（即使云控文件为空），避免「已授权但无文件」被误报为未取得 root。
 

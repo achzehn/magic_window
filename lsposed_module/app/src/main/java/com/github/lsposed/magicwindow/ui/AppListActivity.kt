@@ -158,14 +158,16 @@ class AppListActivity : AppCompatActivity() {
             val hitKeyword = keyword.isEmpty() ||
                     item.label.lowercase().contains(keyword) ||
                     item.packageName.lowercase().contains(keyword)
+            // 被系统禁用的应用只进入「被系统禁用」分组，其余分组一律不出现
+            val disabled = SystemRuleSource.isFixedDisabled(item.packageName)
             val hitFilter = when (filter) {
-                Filter.ALL -> true
+                Filter.ALL -> !disabled
                 // 「已设置」只显示用户手动保存过规则的应用
-                Filter.CONFIGURED -> configured.containsKey(item.packageName)
+                Filter.CONFIGURED -> !disabled && configured.containsKey(item.packageName)
                 // 「被系统禁用」= 系统在固定横屏名单里明确写了 disable="true" 的应用
-                Filter.DISABLED -> SystemRuleSource.isFixedDisabled(item.packageName)
-                Filter.USER -> !item.isSystem
-                Filter.SYSTEM -> item.isSystem
+                Filter.DISABLED -> disabled
+                Filter.USER -> !disabled && !item.isSystem
+                Filter.SYSTEM -> !disabled && item.isSystem
             }
             hitKeyword && hitFilter
         }
@@ -197,6 +199,10 @@ class AppListActivity : AppCompatActivity() {
     }
 
     private fun enterSelection(item: AppItem) {
+        if (SystemRuleSource.isFixedDisabled(item.packageName)) {
+            Snackbar.make(binding.root, R.string.disabled_app_readonly, Snackbar.LENGTH_SHORT).show()
+            return
+        }
         adapter.setSelectionMode(true)
         adapter.toggleSelect(item.packageName)
         invalidateOptionsMenu()
@@ -204,6 +210,7 @@ class AppListActivity : AppCompatActivity() {
     }
 
     private fun toggle(item: AppItem) {
+        if (SystemRuleSource.isFixedDisabled(item.packageName)) return
         adapter.toggleSelect(item.packageName)
         refreshBatchPanel()
     }
@@ -227,7 +234,8 @@ class AppListActivity : AppCompatActivity() {
     private fun selectedMode(): WindowMode = ModeUi.modeOf(binding.batchModeGroup.checkedButtonId)
 
     private fun applyBatch() {
-        val pkgs = adapter.selected.toList()
+        // 被系统禁用的应用不参与批量修改
+        val pkgs = adapter.selected.filterNot { SystemRuleSource.isFixedDisabled(it) }
         if (pkgs.isEmpty()) return
         val mode = selectedMode()
         val rules = pkgs.map { pkg ->
@@ -251,7 +259,8 @@ class AppListActivity : AppCompatActivity() {
     }
 
     private fun clearBatch() {
-        val pkgs = adapter.selected.toList()
+        // 被系统禁用的应用不参与批量操作
+        val pkgs = adapter.selected.filterNot { SystemRuleSource.isFixedDisabled(it) }
         if (pkgs.isEmpty()) return
         ConfigRepository.removeRules(pkgs)
         exitSelection()

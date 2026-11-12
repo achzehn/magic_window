@@ -135,14 +135,8 @@ class AppDetailActivity : AppCompatActivity() {
             SystemRuleSource.whenLoadedOnMain { onSystemRulesReady() }
         }
 
-        // 系统明确禁用的应用：默认锁定，开关强制修改后才可编辑
-        binding.cardForceEdit.visibility =
-            if (SystemRuleSource.isFixedDisabled(pkg)) View.VISIBLE else View.GONE
-        binding.swForceEdit.isChecked = rule.forceEdit
-        binding.swForceEdit.setOnCheckedChangeListener { _, v ->
-            rule.forceEdit = v
-            applyEditState()
-        }
+        // 系统明确禁用的应用：只读，不提供强制修改入口
+        binding.cardForceEdit.visibility = View.GONE
 
         binding.switchEnabled.isChecked = rule.enabled
         binding.switchEnabled.setOnCheckedChangeListener { _, v ->
@@ -196,9 +190,8 @@ class AppDetailActivity : AppCompatActivity() {
             buildForm()
         }
         showBuiltinCard()
-        // 禁用状态要等规则表加载完成后才可知，这里再刷新一次卡片与锁定状态
-        binding.cardForceEdit.visibility =
-            if (SystemRuleSource.isFixedDisabled(pkg)) View.VISIBLE else View.GONE
+        // 禁用状态要等规则表加载完成后才可知，这里再刷新一次锁定状态
+        binding.cardForceEdit.visibility = View.GONE
         applyEditState()
         SystemRuleSource.errorMessage?.let {
             Snackbar.make(binding.root, it, Snackbar.LENGTH_LONG).show()
@@ -206,11 +199,10 @@ class AppDetailActivity : AppCompatActivity() {
     }
 
     /**
-     * 系统禁用的应用默认锁定整张表单（模式按钮、开关、输入框、保存），
-     * 「强制修改」打开后才解锁；简单/高级切换与恢复默认始终可用。
+     * 系统禁用的应用整张表单锁定（只读，不支持修改）；简单/高级切换仍可用于查看。
      */
     private fun applyEditState() {
-        val locked = SystemRuleSource.isFixedDisabled(pkg) && !rule.forceEdit
+        val locked = SystemRuleSource.isFixedDisabled(pkg)
         fun deep(root: View, enabled: Boolean) {
             root.isEnabled = enabled
             (root as? ViewGroup)?.let { g ->
@@ -221,6 +213,7 @@ class AppDetailActivity : AppCompatActivity() {
         deep(binding.modeGroup, !locked)
         binding.switchEnabled.isEnabled = !locked
         binding.btnSave.isEnabled = !locked
+        binding.btnReset.isEnabled = !locked
         binding.btnImport.isEnabled = !locked
         binding.container.alpha = if (locked) 0.45f else 1f
     }
@@ -346,8 +339,8 @@ class AppDetailActivity : AppCompatActivity() {
         box.removeAllViews()
         fieldViews.clear()
 
-        // 系统禁用且未解锁：置灰提示，控件由 applyEditState 统一禁用
-        if (SystemRuleSource.isFixedDisabled(pkg) && !rule.forceEdit) {
+        // 系统禁用：置灰只读提示，控件由 applyEditState 统一禁用
+        if (SystemRuleSource.isFixedDisabled(pkg)) {
             UiKit.note(box, getString(R.string.locked_hint))
         }
 

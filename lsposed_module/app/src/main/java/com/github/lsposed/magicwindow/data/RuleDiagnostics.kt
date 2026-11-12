@@ -99,6 +99,19 @@ object RuleDiagnostics {
                 if (right != "*") checkExists("splitPairRule", right)
             }
 
+            // 平行窗口只在「入口 Activity 作左栏」时才会在应用启动后触发分屏；
+            // 多页面 / 推荐主页面写法实测会出现「规则已保存但进不了平行窗口」
+            val entry = RulePresets.entryActivity(context, pkg)
+            if (entry != null) {
+                val activityList = rule.activityRule.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                if (entry !in activityList || entry !in pairLefts) {
+                    issue(
+                        "warning", "splitPairRule",
+                        "未包含启动器入口 Activity $entry，可能不会触发平行窗口；建议 activityRule 与 splitPairRule 都只填入口 Activity"
+                    )
+                }
+            }
+
             rule.placeholder.takeIf { it.isNotEmpty() }?.let { ph ->
                 val parts = ph.split(':')
                 if (parts.size != 2 || parts.any { it.isBlank() }) {
