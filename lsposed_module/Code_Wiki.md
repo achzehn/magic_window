@@ -1,7 +1,7 @@
 # Magic Window Adapter — Code Wiki
 
 > 模块包名：`com.github.lsposed.magicwindow`
-> 版本：2.4.5（versionCode 20405）
+> 版本：2.4.6（versionCode 20406）
 > 许可证：Apache License 2.0
 
 ---
@@ -631,6 +631,17 @@ git push origin v2.4.4
 ---
 
 ## 14. 近期修改记录
+
+### v2.4.6（2026-11-12）— 界面重设计 + API 102 合规与性能修复
+
+**版本：** v2.4.6（versionCode 20406），本批次自 v2.4.5 起的改动汇总：
+
+1. **界面重设计**：清爽明亮设计令牌（浅底 + 白卡片 + 细描边 + 大留白）+ Material 3 转场/按压/列表动效，触摸热区满足 48dp。
+2. **API 102 合规与确定性修复**：日志 tag 传 `null`（自定义 tag 会被过滤）、静态作用域只保留 `system`、`loadPackage` / `loadLocalFixOrientationRuleXML` 按方法名取重载不硬编码参数个数、不 hook 构造方法、`SharedPreferences` 监听器字段强引用、热路径缓存解析结果。
+3. **平行窗口最小配置**：新增 `RulePresets`，AI/MCP 在 embedding 模式下把 `activityRule` / `splitPairRule` 收敛为入口 Activity 一对，避免能落盘但不触发分屏；`RuleDiagnostics` 补充对应 warning。
+4. **系统禁用应用只读**：`set_app_rule` 直接拒绝、列表只在「被系统禁用」分组出现、详情页整页只读；`search_apps` / `get_app_activities` 增加 `system_disabled` 标记。
+5. **激活状态首帧判定**：三态渲染（检测中 → 已生效 / 未生效），消除冷启动红色失败闪动；宽限期仅前台计时，后台不跑 su、不读盘。
+6. **移除模型 Top K**：`top_k` 仅部分端点支持，官方 OpenAI 端点严格校验会 400，字段与请求体一并移除。
 
 ### 平行窗口最小化与系统禁用应用只读（2026-11-12）
 
